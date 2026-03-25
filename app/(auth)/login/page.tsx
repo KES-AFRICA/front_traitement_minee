@@ -69,7 +69,7 @@ export default function LoginPage() {
             </div>
             
             <h1 className="mt-8 text-4xl font-bold tracking-tight text-balance">
-              MINEE
+              TADEC
             </h1>
             <p className="mt-2 text-lg text-sidebar-foreground/70">
               {t("auth.welcomeMessage")}
@@ -120,7 +120,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10">
               <Droplets className="w-5 h-5 text-primary" />
             </div>
-            <span className="text-xl font-bold">MINEE</span>
+            <span className="text-xl font-bold">TADEC</span>
           </div>
 
           <Card className="border-border/50 shadow-lg">
@@ -146,7 +146,7 @@ export default function LoginPage() {
                   <Input
                     id="email"
                     type="email"
-                    placeholder="nom@minee.cm"
+                    placeholder="andremarie@minee.cm"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required

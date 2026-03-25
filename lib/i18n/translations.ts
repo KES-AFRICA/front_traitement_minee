@@ -45,10 +45,10 @@ export const translations = {
       forgotPassword: "Mot de passe oublié ?",
       rememberMe: "Se souvenir de moi",
       signIn: "Se connecter",
-      signInSubtitle: "Accédez à la plateforme MINEE",
+      signInSubtitle: "Accédez à la plateforme TADEC",
       invalidCredentials: "Identifiants invalides",
       welcomeBack: "Bon retour",
-      welcomeMessage: "Plateforme de gestion des données du Ministère de l'Eau et de l'Énergie",
+      welcomeMessage: "Plateforme de Traitement Actifs Distribution et Commercial",
     },
     // Navigation
     nav: {
@@ -269,10 +269,10 @@ export const translations = {
       forgotPassword: "Forgot password?",
       rememberMe: "Remember me",
       signIn: "Sign in",
-      signInSubtitle: "Access the MINEE platform",
+      signInSubtitle: "Access the TADEC platform",
       invalidCredentials: "Invalid credentials",
       welcomeBack: "Welcome back",
-      welcomeMessage: "Ministry of Water and Energy Data Management Platform",
+      welcomeMessage: "Active Processing Platform, Distribution and Commercialization",
     },
     // Navigation
     nav: {

@@ -141,8 +141,8 @@ export function AppSidebar() {
             </div>
           </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="font-bold text-sidebar-foreground">MINEE</span>
-            <span className="text-xs text-sidebar-foreground/60">Plateforme de Données</span>
+            <span className="font-bold text-sidebar-foreground">TADEC</span>
+            <span className="text-xs text-sidebar-foreground/60">Traitement & Distribution</span>
           </div>
         </div>
       </SidebarHeader>

@@ -15,12 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'MINEE - Plateforme de Gestion des Données',
-  description: 'Ministère de l\'Eau et de l\'Énergie - Plateforme de collecte, analyse et traitement des données Kobo et Eneo',
+  title: 'TADEC - Traitement Actifs Distribution et Commercial',
+  description: 'Plateforme de collecte, d\'analyse et de traitement des données de distribution d\energie d\'ENEO',
   generator: 'Next.js',
-  applicationName: 'MINEE Platform',
-  keywords: ['MINEE', 'Cameroun', 'Eau', 'Énergie', 'Kobo', 'Eneo', 'SIG', 'Données'],
-  authors: [{ name: 'MINEE' }],
+  applicationName: 'TADEC Platform',
+  keywords: ['TADEC', 'Cameroun', 'Eau', 'Énergie', 'Kobo', 'Eneo', 'SIG', 'Données'],
+  authors: [{ name: 'TADEC' }],
   icons: {
     icon: [
       {
