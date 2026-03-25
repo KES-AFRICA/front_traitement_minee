@@ -113,12 +113,6 @@ export function AppSidebar() {
       icon: Map,
       permission: "view:map",
     },
-    {
-      title: t("nav.performance"),
-      url: "/performance",
-      icon: BarChart3,
-      permission: "view:performance",
-    },
   ];
 
   const filteredNavItems = mainNavItems.filter(
@@ -228,10 +222,10 @@ export function AppSidebar() {
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex flex-col items-start text-left">
-                    <span className="text-sm font-medium truncate max-w-[120px]">
+                    <span className="text-sm font-medium truncate max-w-30">
                       {user?.firstName} {user?.lastName}
                     </span>
-                    <span className="text-xs text-sidebar-foreground/60 truncate max-w-[120px]">
+                    <span className="text-xs text-sidebar-foreground/60 truncate max-w-30">
                       {user?.role && roleLabels[user.role]}
                     </span>
                   </div>

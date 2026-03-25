@@ -28,7 +28,6 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t("settings.title")}</h1>
-        <p className="text-muted-foreground">{t("settings.subtitle")}</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -37,7 +36,6 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-2">
               <User className="h-5 w-5 text-primary" />
-              <CardTitle>{t("settings.profile")}</CardTitle>
             </div>
             <CardDescription>Gérez vos informations personnelles</CardDescription>
           </CardHeader>
@@ -45,11 +43,11 @@ export default function SettingsPage() {
             <div className="flex items-center gap-4">
               <Avatar className="h-20 w-20">
                 <AvatarFallback className="bg-primary text-primary-foreground text-xl">
-                  {user?.name.split(" ").map((n) => n[0]).join("") || "U"}
+                  {user?.firstName.split(" ").map((n) => n[0]).join("") || "U"}
                 </AvatarFallback>
               </Avatar>
               <div>
-                <h3 className="text-lg font-semibold">{user?.name}</h3>
+                <h3 className="text-lg font-semibold">{user?.firstName}</h3>
                 <p className="text-muted-foreground">{user?.email}</p>
                 <Badge className="mt-1">{roleLabels[user?.role || "agent"]}</Badge>
               </div>
@@ -58,7 +56,7 @@ export default function SettingsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="name">Nom complet</Label>
-                <Input id="name" defaultValue={user?.name} />
+                <Input id="name" defaultValue={user?.firstName} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -83,7 +81,6 @@ export default function SettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Palette className="h-5 w-5 text-primary" />
-                <CardTitle>{t("settings.appearance")}</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
