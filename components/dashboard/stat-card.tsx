@@ -1,3 +1,4 @@
+// components/dashboard/stat-card.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,28 +10,25 @@ interface StatCardProps {
   value: string | number;
   description?: string;
   icon?: LucideIcon;
-  trend?: {
-    value: number;
-    isPositive: boolean;
-  };
   className?: string;
   variant?: "default" | "primary" | "success" | "warning" | "destructive";
+  total?: number;
 }
 
 const variantStyles = {
-  default: "bg-card",
-  primary: "bg-primary/5 border-primary/20",
-  success: "bg-success/5 border-success/20",
-  warning: "bg-warning/5 border-warning/20",
-  destructive: "bg-destructive/5 border-destructive/20",
+  default: "bg-card border-border/50",
+  primary: "bg-gradient-to-br from-primary/5 via-primary/2 to-transparent border-primary/20",
+  success: "bg-gradient-to-br from-emerald-500/5 via-emerald-500/2 to-transparent border-emerald-500/20",
+  warning: "bg-gradient-to-br from-amber-500/5 via-amber-500/2 to-transparent border-amber-500/20",
+  destructive: "bg-gradient-to-br from-red-500/5 via-red-500/2 to-transparent border-red-500/20",
 };
 
 const iconStyles = {
-  default: "bg-muted text-muted-foreground",
+  default: "bg-muted/50 text-muted-foreground",
   primary: "bg-primary/10 text-primary",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning-foreground",
-  destructive: "bg-destructive/10 text-destructive",
+  success: "bg-emerald-500/10 text-emerald-500",
+  warning: "bg-amber-500/10 text-amber-500",
+  destructive: "bg-red-500/10 text-red-500",
 };
 
 export function StatCard({
@@ -38,38 +36,48 @@ export function StatCard({
   value,
   description,
   icon: Icon,
-  trend,
   className,
   variant = "default",
+  total,
 }: StatCardProps) {
   return (
-    <Card className={cn(variantStyles[variant], "transition-all hover:shadow-md", className)}>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+    <Card 
+      className={cn(
+        variantStyles[variant], 
+        "overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5",
+        className
+      )}
+    >
+      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+        <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           {title}
         </CardTitle>
         {Icon && (
-          <div className={cn("p-2 rounded-lg", iconStyles[variant])}>
+          <div className={cn(
+            "p-2 rounded-xl transition-transform duration-300",
+            iconStyles[variant]
+          )}>
             <Icon className="h-4 w-4" />
           </div>
         )}
       </CardHeader>
+      
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
+        <div className="text-3xl font-bold tracking-tight">
+          {typeof value === "number" ? value.toLocaleString() : value}
+        </div>
+        
         {description && (
-          <p className="text-xs text-muted-foreground mt-1">{description}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {description}
+          </p>
         )}
-        {trend && (
+        
+        {total !== undefined && total > 0 && (
           <div className="flex items-center gap-1 mt-2">
-            <span
-              className={cn(
-                "text-xs font-medium",
-                trend.isPositive ? "text-success" : "text-destructive"
-              )}
-            >
-              {trend.isPositive ? "+" : ""}{trend.value}%
+            <span className="text-xs text-muted-foreground">
+              sur {total.toLocaleString()}
             </span>
-            <span className="text-xs text-muted-foreground">vs hier</span>
           </div>
         )}
       </CardContent>

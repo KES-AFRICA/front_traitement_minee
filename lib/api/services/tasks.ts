@@ -1,3 +1,4 @@
+// lib/api/services/tasks.ts
 import {
   ApiResponse,
   PaginatedResponse,
@@ -11,6 +12,7 @@ import {
 } from "../types";
 import { mockApiResponse } from "../client";
 import { mockTasks, mockDashboardStats, mockWeeklyTrend, mockActivity } from "../mock-data";
+import { isWithinInterval } from "date-fns";
 
 interface TaskFilters {
   type?: TaskType;
@@ -18,6 +20,8 @@ interface TaskFilters {
   priority?: TaskPriority;
   assignedTo?: string;
   search?: string;
+  startDate?: Date;
+  endDate?: Date;
 }
 
 interface TaskPagination {
@@ -54,6 +58,12 @@ class TaskService {
           t.title.toLowerCase().includes(searchLower) ||
           t.description?.toLowerCase().includes(searchLower)
       );
+    }
+    if (filters.startDate && filters.endDate) {
+      filteredTasks = filteredTasks.filter((t) => {
+        const createdAt = new Date(t.createdAt);
+        return isWithinInterval(createdAt, { start: filters.startDate!, end: filters.endDate! });
+      });
     }
 
     // Sort by date (newest first)
@@ -156,43 +166,106 @@ class TaskService {
     });
   }
 
-  async getDashboardStats(): Promise<ApiResponse<DashboardStats>> {
-    // Calculate real stats from tasks
-    const stats: DashboardStats = {
-      totalTasks: this.tasks.length + mockDashboardStats.totalTasks - mockTasks.length,
-      pending: this.tasks.filter((t) => t.status === "pending").length + 
-        mockDashboardStats.pending - mockTasks.filter((t) => t.status === "pending").length,
-      inProgress: this.tasks.filter((t) => t.status === "in_progress").length +
-        mockDashboardStats.inProgress - mockTasks.filter((t) => t.status === "in_progress").length,
-      completed: this.tasks.filter((t) => t.status === "completed").length +
-        mockDashboardStats.completed - mockTasks.filter((t) => t.status === "completed").length,
-      validated: this.tasks.filter((t) => t.status === "validated").length +
-        mockDashboardStats.validated - mockTasks.filter((t) => t.status === "validated").length,
-      rejected: this.tasks.filter((t) => t.status === "rejected").length +
-        mockDashboardStats.rejected - mockTasks.filter((t) => t.status === "rejected").length,
-      processingRate: mockDashboardStats.processingRate,
-      validationRate: mockDashboardStats.validationRate,
-      avgProcessingTime: mockDashboardStats.avgProcessingTime,
-    };
+  async getDashboardStats(startDate?: Date, endDate?: Date): Promise<ApiResponse<DashboardStats>> {
+    let filteredTasks = [...this.tasks];
+    
+    if (startDate && endDate) {
+      filteredTasks = filteredTasks.filter(task => {
+        const createdAt = new Date(task.createdAt);
+        return isWithinInterval(createdAt, { start: startDate, end: endDate });
+      });
+    }
 
-    return mockApiResponse(stats);
+    const totalTasks = filteredTasks.length;
+    const pending = filteredTasks.filter(t => t.status === "pending").length;
+    const inProgress = filteredTasks.filter(t => t.status === "in_progress").length;
+    const completed = filteredTasks.filter(t => t.status === "completed").length;
+    const validated = filteredTasks.filter(t => t.status === "validated").length;
+    const rejected = filteredTasks.filter(t => t.status === "rejected").length;
+
+    const processed = completed + validated + rejected;
+    const processingRate = totalTasks > 0 ? (processed / totalTasks) * 100 : 0;
+    const validationRate = completed > 0 ? (validated / completed) * 100 : 0;
+
+    // Calculer le temps de traitement moyen
+    let avgProcessingTime = 0;
+    const completedTasks = filteredTasks.filter(t => t.status === "completed" || t.status === "validated");
+    if (completedTasks.length > 0) {
+      const totalTime = completedTasks.reduce((sum, task) => {
+        const created = new Date(task.createdAt);
+        const completed = new Date(task.completedAt || task.validatedAt || new Date());
+        const hoursDiff = (completed.getTime() - created.getTime()) / (1000 * 60 * 60);
+        return sum + hoursDiff;
+      }, 0);
+      avgProcessingTime = parseFloat((totalTime / completedTasks.length).toFixed(1));
+    }
+
+    return mockApiResponse({
+      totalTasks,
+      pending,
+      inProgress,
+      completed,
+      validated,
+      rejected,
+      processingRate,
+      validationRate,
+      avgProcessingTime,
+    });
   }
 
-  async getWeeklyTrend(): Promise<ApiResponse<WeeklyTrend[]>> {
-    return mockApiResponse(mockWeeklyTrend);
+  async getWeeklyTrend(startDate?: Date, endDate?: Date): Promise<ApiResponse<WeeklyTrend[]>> {
+    let filteredTrend = [...mockWeeklyTrend];
+    
+    if (startDate && endDate) {
+      filteredTrend = filteredTrend.filter(trend => {
+        const trendDate = new Date(trend.date);
+        return isWithinInterval(trendDate, { start: startDate, end: endDate });
+      });
+    }
+    
+    return mockApiResponse(filteredTrend);
   }
 
-  async getRecentActivity(limit: number = 10): Promise<ApiResponse<ActivityItem[]>> {
-    return mockApiResponse(mockActivity.slice(0, limit));
+  async getRecentActivity(limit: number = 10, startDate?: Date, endDate?: Date): Promise<ApiResponse<ActivityItem[]>> {
+    let filteredActivity = [...mockActivity];
+    
+    if (startDate && endDate) {
+      filteredActivity = filteredActivity.filter(activity => {
+        const timestamp = new Date(activity.timestamp);
+        return isWithinInterval(timestamp, { start: startDate, end: endDate });
+      });
+    }
+    
+    filteredActivity.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    
+    return mockApiResponse(filteredActivity.slice(0, limit));
   }
 
-  async getTasksByType(type: TaskType): Promise<ApiResponse<Task[]>> {
-    const tasks = this.tasks.filter((t) => t.type === type);
+  async getTasksByType(type: TaskType, startDate?: Date, endDate?: Date): Promise<ApiResponse<Task[]>> {
+    let tasks = this.tasks.filter((t) => t.type === type);
+    
+    if (startDate && endDate) {
+      tasks = tasks.filter(task => {
+        const createdAt = new Date(task.createdAt);
+        return isWithinInterval(createdAt, { start: startDate, end: endDate });
+      });
+    }
+    
     return mockApiResponse(tasks);
   }
 
-  async getPendingValidation(): Promise<ApiResponse<Task[]>> {
-    const tasks = this.tasks.filter((t) => t.status === "completed");
+  async getPendingValidation(startDate?: Date, endDate?: Date): Promise<ApiResponse<Task[]>> {
+    let tasks = this.tasks.filter((t) => t.status === "completed");
+    
+    if (startDate && endDate) {
+      tasks = tasks.filter(task => {
+        const createdAt = new Date(task.createdAt);
+        return isWithinInterval(createdAt, { start: startDate, end: endDate });
+      });
+    }
+    
     return mockApiResponse(tasks);
   }
 }

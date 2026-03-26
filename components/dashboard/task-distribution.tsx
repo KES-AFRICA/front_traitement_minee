@@ -1,3 +1,4 @@
+// components/dashboard/task-distribution.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,11 +17,11 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
   const { t } = useI18n();
 
   const data = [
-    { name: t("status.pending"), value: stats.pending, color: "var(--color-warning)" },
-    { name: t("status.inProgress"), value: stats.inProgress, color: "var(--color-info)" },
-    { name: t("status.completed"), value: stats.completed - stats.validated, color: "var(--color-chart-1)" },
-    { name: t("status.validated"), value: stats.validated, color: "var(--color-success)" },
-    { name: t("status.rejected"), value: stats.rejected, color: "var(--color-destructive)" },
+    { name: "En attente", value: stats.pending, color: "var(--muted)" },
+    { name: "En cours", value: stats.inProgress, color: "var(--color-warning)" },
+    { name: "Traités", value: stats.completed - stats.validated, color: "var(--color-info)" },
+    { name: "Validés", value: stats.validated, color: "var(--color-success)" },
+    { name: "Rejetés", value: stats.rejected, color: "var(--color-destructive)" },
   ].filter(item => item.value > 0);
 
   const chartConfig = data.reduce((acc, item) => ({
@@ -34,11 +35,29 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PieChartIcon className="h-5 w-5" />
-            {t("dashboard.progressOverview")}
+            Aperçu de l'avancement
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] animate-pulse bg-muted rounded" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (stats.totalTasks === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <PieChartIcon className="h-5 w-5" />
+            Aperçu de l'avancement
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+            Aucune donnée pour cette période
+          </div>
         </CardContent>
       </Card>
     );
@@ -49,7 +68,7 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <PieChartIcon className="h-5 w-5" />
-          {t("dashboard.progressOverview")}
+          Aperçu de l'avancement
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -84,7 +103,7 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
         </ChartContainer>
         <div className="text-center mt-4">
           <p className="text-3xl font-bold">{stats.totalTasks.toLocaleString()}</p>
-          <p className="text-sm text-muted-foreground">{t("dashboard.totalTasks")}</p>
+          <p className="text-sm text-muted-foreground">Total des tâches</p>
         </div>
       </CardContent>
     </Card>

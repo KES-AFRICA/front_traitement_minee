@@ -1,3 +1,4 @@
+// components/dashboard/activity-feed.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,14 @@ const activityBadgeVariants: Record<ActivityItem["type"], "default" | "secondary
   user_created: "outline",
 };
 
+const activityLabels: Record<ActivityItem["type"], string> = {
+  task_created: "Création",
+  task_completed: "Complété",
+  task_validated: "Validé",
+  task_rejected: "Rejeté",
+  user_created: "Utilisateur",
+};
+
 export function ActivityFeed({ activities, isLoading }: ActivityFeedProps) {
   const { t, language } = useI18n();
 
@@ -57,7 +66,7 @@ export function ActivityFeed({ activities, isLoading }: ActivityFeedProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="h-5 w-5" />
-            {t("dashboard.recentActivity")}
+            Activités récentes
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -77,59 +86,71 @@ export function ActivityFeed({ activities, isLoading }: ActivityFeedProps) {
     );
   }
 
+  if (activities.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            Activités récentes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[350px] flex items-center justify-center text-muted-foreground">
+            Aucune activité pour cette période
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Activity className="h-5 w-5" />
-          {t("dashboard.recentActivity")}
+          Activités récentes
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <ScrollArea className="h-[350px] px-6">
           <div className="space-y-4 pb-4">
-            {activities.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">
-                {t("common.noData")}
-              </p>
-            ) : (
-              activities.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  {activity.user ? (
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                        {getInitials(activity.user.firstName, activity.user.lastName)}
-                      </AvatarFallback>
-                    </Avatar>
-                  ) : (
-                    <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted">
-                      {activityIcons[activity.type]}
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium truncate">
-                        {activity.user
-                          ? `${activity.user.firstName} ${activity.user.lastName}`
-                          : "Système"}
-                      </p>
-                      <Badge variant={activityBadgeVariants[activity.type]} className="text-[10px] h-5">
-                        {activity.type.replace("_", " ")}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {activity.description}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {formatDate(activity.timestamp)}
-                    </p>
+            {activities.map((activity) => (
+              <div
+                key={activity.id}
+                className="flex items-start gap-3 p-3 rounded-lg hover:bg-muted/50 transition-colors"
+              >
+                {activity.user ? (
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                      {getInitials(activity.user.firstName, activity.user.lastName)}
+                    </AvatarFallback>
+                  </Avatar>
+                ) : (
+                  <div className="flex items-center justify-center h-8 w-8 rounded-full bg-muted">
+                    {activityIcons[activity.type]}
                   </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium truncate">
+                      {activity.user
+                        ? `${activity.user.firstName} ${activity.user.lastName}`
+                        : "Système"}
+                    </p>
+                    <Badge variant={activityBadgeVariants[activity.type]} className="text-[10px] h-5">
+                      {activityLabels[activity.type]}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {activity.description}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatDate(activity.timestamp)}
+                  </p>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </ScrollArea>
       </CardContent>

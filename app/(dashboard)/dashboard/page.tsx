@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -8,6 +9,8 @@ import { ActivityFeed } from "@/components/dashboard/activity-feed";
 import { WeeklyChart } from "@/components/dashboard/weekly-chart";
 import { AgentStats } from "@/components/dashboard/agent-stats";
 import { TaskDistribution } from "@/components/dashboard/task-distribution";
+import { DateFilter } from "@/components/dashboard/date-filter";
+import { useDateFilter, DateRangeType, DateRange } from "@/hooks/use-date-filter";
 import { taskService } from "@/lib/api/services/tasks";
 import { userService } from "@/lib/api/services/users";
 import {
@@ -34,100 +37,132 @@ export default function DashboardPage() {
   const [agentStats, setAgentStats] = useState<AgentStatsType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const {
+    dateRangeType,
+    dateRange,
+    setDateRangeType,
+    setCustomRange,
+    formatDateRange,
+  } = useDateFilter();
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const [statsRes, trendRes, activityRes, agentRes] = await Promise.all([
+        taskService.getDashboardStats(dateRange.start, dateRange.end),
+        taskService.getWeeklyTrend(dateRange.start, dateRange.end),
+        taskService.getRecentActivity(10, dateRange.start, dateRange.end),
+        userService.getAgentStats(dateRange.start, dateRange.end),
+      ]);
+
+      if (statsRes.data) setStats(statsRes.data);
+      if (trendRes.data) setWeeklyTrend(trendRes.data);
+      if (activityRes.data) setActivities(activityRes.data);
+      if (agentRes.data) setAgentStats(agentRes.data);
+    } catch (error) {
+      console.error("Failed to fetch dashboard data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        const [statsRes, trendRes, activityRes, agentRes] = await Promise.all([
-          taskService.getDashboardStats(),
-          taskService.getWeeklyTrend(),
-          taskService.getRecentActivity(10),
-          userService.getAgentStats(),
-        ]);
-
-        if (statsRes.data) setStats(statsRes.data);
-        if (trendRes.data) setWeeklyTrend(trendRes.data);
-        if (activityRes.data) setActivities(activityRes.data);
-        if (agentRes.data) setAgentStats(agentRes.data);
-      } catch (error) {
-        console.error("Failed to fetch dashboard data:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchData();
-  }, []);
+  }, [dateRange]);
+
+  const handleRangeTypeChange = (type: DateRangeType) => {
+    setDateRangeType(type);
+  };
+
+  const handleCustomRangeChange = (range: DateRange) => {
+    setCustomRange(range);
+  };
+
+  const totalProcessed = stats?.totalTasks || 0;
+  const totalCompleted = stats?.completed || 0;
 
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight">
-          {t("dashboard.welcome")}, {user?.firstName}
-        </h1>
-        <p className="text-muted-foreground">
-          {t("dashboard.overview")} - {new Date().toLocaleDateString("fr-FR", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </p>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Bonjour, {user?.firstName}
+            </h1>
+            <p className="text-muted-foreground">
+              Tableau de bord - {formatDateRange()}
+            </p>
+          </div>
+          <DateFilter
+            dateRangeType={dateRangeType}
+            dateRange={dateRange}
+            onRangeTypeChange={handleRangeTypeChange}
+            onCustomRangeChange={handleCustomRangeChange}
+          />
+        </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Stats Grid - Status de traitement */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <StatCard
-          title={t("dashboard.pending")}
+          title="En attente"
           value={isLoading ? "-" : stats?.pending.toLocaleString() || "0"}
-          description={t("dashboard.todayStats")}
+          description="En attente de traitement"
           icon={Clock}
-          variant="warning"
-          trend={{ value: 12, isPositive: false }}
+          variant="default"
+          total={totalProcessed}
         />
         <StatCard
-          title={t("dashboard.inProgress")}
+          title="En cours"
           value={isLoading ? "-" : stats?.inProgress.toLocaleString() || "0"}
-          description={t("dashboard.todayStats")}
+          description="En cours de traitement"
           icon={Loader2}
-          variant="primary"
-          trend={{ value: 8, isPositive: true }}
+          variant="warning"
+          total={totalProcessed}
         />
         <StatCard
-          title={t("dashboard.completed")}
+          title="Traités"
           value={isLoading ? "-" : stats?.completed.toLocaleString() || "0"}
-          description={t("dashboard.todayStats")}
+          description="Traitement terminé"
+          icon={CheckCircle2}
+          variant="primary"
+          total={totalProcessed}
+        />
+        <StatCard
+          title="Validés"
+          value={isLoading ? "-" : stats?.validated.toLocaleString() || "0"}
+          description="Validation finale"
           icon={CheckCircle2}
           variant="success"
-          trend={{ value: 24, isPositive: true }}
+          total={totalCompleted}
         />
         <StatCard
-          title={t("dashboard.rejected")}
+          title="Rejetés"
           value={isLoading ? "-" : stats?.rejected.toLocaleString() || "0"}
-          description={t("dashboard.todayStats")}
+          description="Rejeté"
           icon={XCircle}
           variant="destructive"
-          trend={{ value: 5, isPositive: false }}
+          total={totalCompleted}
         />
       </div>
 
       {/* Rate Stats */}
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard
-          title={t("dashboard.processingRate")}
-          value={isLoading ? "-" : `${stats?.processingRate || 0}%`}
+          title="Taux de traitement"
+          value={isLoading ? "-" : `${stats?.processingRate.toFixed(1) || 0}%`}
           icon={TrendingUp}
           variant="default"
         />
         <StatCard
-          title={t("dashboard.validationRate")}
-          value={isLoading ? "-" : `${stats?.validationRate || 0}%`}
+          title="Taux de validation"
+          value={isLoading ? "-" : `${stats?.validationRate.toFixed(1) || 0}%`}
           icon={CheckCircle2}
           variant="default"
         />
         <StatCard
-          title={t("dashboard.avgProcessingTime")}
+          title="Temps moyen"
           value={isLoading ? "-" : `${stats?.avgProcessingTime || 0}h`}
           icon={AlertCircle}
           variant="default"

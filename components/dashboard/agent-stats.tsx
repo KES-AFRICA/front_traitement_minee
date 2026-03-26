@@ -1,3 +1,4 @@
+// components/dashboard/agent-stats.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +40,7 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
-            {t("dashboard.tasksByAgent")}
+            Performance des agents
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -59,76 +60,90 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
     );
   }
 
+  if (stats.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            Performance des agents
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[350px] flex items-center justify-center text-muted-foreground">
+            Aucune donnée pour cette période
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
-          {t("dashboard.tasksByAgent")}
+          Performance des agents
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         <ScrollArea className="h-[350px] px-6">
           <div className="space-y-4 pb-4">
-            {stats.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">
-                {t("common.noData")}
-              </p>
-            ) : (
-              stats.map((agent) => (
-                <div
-                  key={agent.userId}
-                  className="p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                        {getInitials(agent.user.firstName, agent.user.lastName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">
-                        {agent.user.firstName} {agent.user.lastName}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {agent.user.department}
-                      </p>
-                    </div>
-                    <Badge variant={getOccupancyVariant(agent.occupancyRate)}>
-                      {agent.occupancyRate}%
-                    </Badge>
+            {stats.map((agent) => (
+              <div
+                key={agent.userId}
+                className="p-4 rounded-lg border border-border hover:border-primary/30 transition-colors"
+              >
+                <div className="flex items-center gap-3 mb-3">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                      {getInitials(agent.user.firstName, agent.user.lastName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">
+                      {agent.user.firstName} {agent.user.lastName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {agent.user.role === "processing_agent" ? "Agent de traitement" : 
+                       agent.user.role === "validation_agent" ? "Agent de validation" :
+                       agent.user.role === "team_lead" ? "Chef d'équipe" : "Admin"}
+                    </p>
                   </div>
+                  <Badge variant={getOccupancyVariant(agent.occupancyRate)}>
+                    {agent.occupancyRate}%
+                  </Badge>
+                </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        {t("users.tasksCompleted")}
-                      </span>
-                      <span className="font-medium">
-                        {agent.tasksCompleted}/{agent.tasksAssigned}
-                      </span>
-                    </div>
-                    <Progress
-                      value={(agent.tasksCompleted / Math.max(agent.tasksAssigned, 1)) * 100}
-                      className="h-2"
-                    />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Tâches complétées
+                    </span>
+                    <span className="font-medium">
+                      {agent.tasksCompleted}/{agent.tasksAssigned}
+                    </span>
                   </div>
+                  <Progress
+                    value={(agent.tasksCompleted / Math.max(agent.tasksAssigned, 1)) * 100}
+                    className="h-2"
+                  />
+                </div>
 
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
-                    <div className="text-xs text-muted-foreground">
-                      {t("performance.efficiency")}:{" "}
-                      <span className={`font-medium ${getEfficiencyColor(agent.efficiency)}`}>
-                        {agent.efficiency}%
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {t("dashboard.avgProcessingTime")}:{" "}
-                      <span className="font-medium">{agent.avgProcessingTime}h</span>
-                    </div>
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
+                  <div className="text-xs text-muted-foreground">
+                    Efficacité:{" "}
+                    <span className={`font-medium ${getEfficiencyColor(agent.efficiency)}`}>
+                      {agent.efficiency}%
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Temps moyen:{" "}
+                    <span className="font-medium">{agent.avgProcessingTime}h</span>
                   </div>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </ScrollArea>
       </CardContent>

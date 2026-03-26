@@ -1,12 +1,15 @@
+// lib/api/services/users.ts
 import {
   ApiResponse,
   PaginatedResponse,
   User,
   UserRole,
   AgentStats,
+  Task,
 } from "../types";
 import { mockApiResponse } from "../client";
-import { mockUsers, mockAgentStats } from "../mock-data";
+import { mockUsers, mockAgentStats, mockTasks } from "../mock-data";
+import { isWithinInterval } from "date-fns";
 
 interface UserFilters {
   role?: UserRole;
@@ -22,6 +25,7 @@ interface UserPagination {
 
 class UserService {
   private users: User[] = [...mockUsers];
+  private tasks: Task[] = [...mockTasks];
 
   async getUsers(
     filters: UserFilters = {},
@@ -89,8 +93,8 @@ class UserService {
       tasksAssigned: 0,
       tasksCompleted: 0,
       occupancyRate: 0,
-      status:'hors ligne',
-      company:userData.company || ""
+      status: 'hors ligne',
+      company: userData.company || ""
     };
 
     this.users.push(newUser);
@@ -141,30 +145,141 @@ class UserService {
     return mockApiResponse(this.users[userIndex]);
   }
 
-  async getAgentStats(): Promise<ApiResponse<AgentStats[]>> {
-    return mockApiResponse(mockAgentStats);
-  }
-
-  async getUserStats(userId: string): Promise<ApiResponse<AgentStats>> {
-    const stats = mockAgentStats.find((s) => s.userId === userId);
-    if (!stats) {
-      // Return default stats
-      const user = this.users.find((u) => u.id === userId);
-      if (!user) {
-        return { error: "User not found" };
-      }
-      return mockApiResponse({
-        userId,
-        user,
-        tasksAssigned: user.tasksAssigned,
-        tasksCompleted: user.tasksCompleted,
-        tasksValidated: 0,
-        tasksRejected: 0,
-        occupancyRate: user.occupancyRate,
-        avgProcessingTime: 0,
-        efficiency: 0,
+  async getAgentStats(startDate?: Date, endDate?: Date): Promise<ApiResponse<AgentStats[]>> {
+    // Filtrer les tâches par période si des dates sont fournies
+    let filteredTasks = [...this.tasks];
+    
+    if (startDate && endDate) {
+      filteredTasks = filteredTasks.filter(task => {
+        const createdAt = new Date(task.createdAt);
+        const completedAt = task.completedAt ? new Date(task.completedAt) : null;
+        
+        // Une tâche est considérée dans la période si elle a été créée OU complétée pendant la période
+        return isWithinInterval(createdAt, { start: startDate, end: endDate }) ||
+          (completedAt && isWithinInterval(completedAt, { start: startDate, end: endDate }));
       });
     }
+
+    // Recalculer les statistiques pour chaque agent basé sur les tâches filtrées
+    const updatedStats = mockAgentStats.map(stat => {
+      const userTasks = filteredTasks.filter(task => task.assignedTo === stat.userId);
+      const tasksAssigned = userTasks.length;
+      const tasksCompleted = userTasks.filter(task => 
+        task.status === "completed" || task.status === "validated"
+      ).length;
+      const tasksValidated = userTasks.filter(task => task.status === "validated").length;
+      const tasksRejected = userTasks.filter(task => task.status === "rejected").length;
+      
+      // Calculer le taux d'occupation basé sur les tâches assignées vs capacité (max 100 par agent)
+      const maxCapacity = 100;
+      const occupancyRate = Math.min(Math.round((tasksAssigned / maxCapacity) * 100), 100);
+      
+      // Calculer le temps de traitement moyen pour les tâches complétées
+      const completedTasksWithTime = userTasks.filter(task => 
+        (task.status === "completed" || task.status === "validated") && 
+        task.completedAt
+      );
+      
+      let avgProcessingTime = 0;
+      if (completedTasksWithTime.length > 0) {
+        const totalProcessingTime = completedTasksWithTime.reduce((sum, task) => {
+          const created = new Date(task.createdAt);
+          const completed = new Date(task.completedAt!);
+          const hoursDiff = (completed.getTime() - created.getTime()) / (1000 * 60 * 60);
+          return sum + hoursDiff;
+        }, 0);
+        avgProcessingTime = parseFloat((totalProcessingTime / completedTasksWithTime.length).toFixed(1));
+      }
+      
+      // Calculer l'efficacité basée sur le taux de validation
+      let efficiency = 0;
+      if (tasksCompleted > 0) {
+        efficiency = Math.round((tasksValidated / tasksCompleted) * 100);
+      } else if (tasksAssigned > 0) {
+        efficiency = 0;
+      } else {
+        efficiency = stat.efficiency;
+      }
+      
+      return {
+        ...stat,
+        tasksAssigned,
+        tasksCompleted,
+        tasksValidated,
+        tasksRejected,
+        occupancyRate,
+        avgProcessingTime,
+        efficiency,
+      };
+    });
+    
+    return mockApiResponse(updatedStats);
+  }
+
+  async getUserStats(userId: string, startDate?: Date, endDate?: Date): Promise<ApiResponse<AgentStats>> {
+    // Filtrer les tâches par période
+    let filteredTasks = [...this.tasks];
+    
+    if (startDate && endDate) {
+      filteredTasks = filteredTasks.filter(task => {
+        const createdAt = new Date(task.createdAt);
+        return isWithinInterval(createdAt, { start: startDate, end: endDate });
+      });
+    }
+    
+    const userTasks = filteredTasks.filter(task => task.assignedTo === userId);
+    const user = this.users.find((u) => u.id === userId);
+    
+    if (!user) {
+      return { error: "User not found" };
+    }
+    
+    const tasksAssigned = userTasks.length;
+    const tasksCompleted = userTasks.filter(task => 
+      task.status === "completed" || task.status === "validated"
+    ).length;
+    const tasksValidated = userTasks.filter(task => task.status === "validated").length;
+    const tasksRejected = userTasks.filter(task => task.status === "rejected").length;
+    
+    // Calculer le taux d'occupation
+    const maxCapacity = 100;
+    const occupancyRate = Math.min(Math.round((tasksAssigned / maxCapacity) * 100), 100);
+    
+    // Calculer le temps de traitement moyen
+    const completedTasksWithTime = userTasks.filter(task => 
+      (task.status === "completed" || task.status === "validated") && 
+      task.completedAt
+    );
+    
+    let avgProcessingTime = 0;
+    if (completedTasksWithTime.length > 0) {
+      const totalProcessingTime = completedTasksWithTime.reduce((sum, task) => {
+        const created = new Date(task.createdAt);
+        const completed = new Date(task.completedAt!);
+        const hoursDiff = (completed.getTime() - created.getTime()) / (1000 * 60 * 60);
+        return sum + hoursDiff;
+      }, 0);
+      avgProcessingTime = parseFloat((totalProcessingTime / completedTasksWithTime.length).toFixed(1));
+    }
+    
+    // Calculer l'efficacité
+    let efficiency = 0;
+    if (tasksCompleted > 0) {
+      efficiency = Math.round((tasksValidated / tasksCompleted) * 100);
+    }
+    
+    const stats: AgentStats = {
+      userId,
+      user,
+      tasksAssigned,
+      tasksCompleted,
+      tasksValidated,
+      tasksRejected,
+      occupancyRate,
+      avgProcessingTime,
+      efficiency,
+    };
+    
     return mockApiResponse(stats);
   }
 

@@ -1,3 +1,4 @@
+// components/dashboard/weekly-chart.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -40,7 +41,7 @@ export function WeeklyChart({ data, isLoading }: WeeklyChartProps) {
   const { t, language } = useI18n();
 
   const formatDate = (dateString: string) => {
-    return format(new Date(dateString), "EEE", {
+    return format(new Date(dateString), "EEE dd/MM", {
       locale: language === "fr" ? fr : enUS,
     });
   };
@@ -54,11 +55,35 @@ export function WeeklyChart({ data, isLoading }: WeeklyChartProps) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>{t("dashboard.weeklyTrend")}</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            {t("dashboard.weeklyTrend")}
+          </CardTitle>
           <CardDescription>Chargement...</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="h-[300px] animate-pulse bg-muted rounded" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            {t("dashboard.weeklyTrend")}
+          </CardTitle>
+          <CardDescription>
+            Aucune donnée pour la période sélectionnée
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+            Aucune activité sur cette période
+          </div>
         </CardContent>
       </Card>
     );
@@ -78,7 +103,7 @@ export function WeeklyChart({ data, isLoading }: WeeklyChartProps) {
           {t("dashboard.weeklyTrend")}
         </CardTitle>
         <CardDescription>
-          {t("dashboard.processingRate")}: {validationRate}%
+          Taux de validation: {validationRate}%
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -116,7 +141,7 @@ export function WeeklyChart({ data, isLoading }: WeeklyChartProps) {
               <Area
                 type="monotone"
                 dataKey="completed"
-                name={t("dashboard.completed")}
+                name="Traités"
                 stroke="var(--color-chart-1)"
                 strokeWidth={2}
                 fill="url(#colorCompleted)"
