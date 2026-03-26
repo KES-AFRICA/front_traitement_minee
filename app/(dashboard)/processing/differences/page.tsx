@@ -11,7 +11,7 @@ import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filt
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
 import { eneoRegions, getRegionStats, getZoneStats, EneoRegion, EneoZone, EneoDeparture } from "@/lib/api/eneo-data";
-import { Search } from "lucide-react";
+import { GitCompare, Search } from "lucide-react";
 import { toast } from "sonner";
 
 // Types pour les divergences
@@ -574,7 +574,10 @@ export default function DivergencesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Divergences</h1>
+          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
+            <GitCompare className="h-7 w-7 text-orange-500" />
+            Divergences
+          </h1>
           <p className="text-muted-foreground mt-1">
             Divergences d'enregistrement nécessitant une analyse et une correction
           </p>

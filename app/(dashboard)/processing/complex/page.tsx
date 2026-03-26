@@ -15,7 +15,7 @@ import { EquipmentTable, Equipment } from "@/components/complex-cases/equipment-
 import { EquipmentDetailModal } from "@/components/complex-cases/equipment-detail-modal";
 import { AddCommentModal } from "@/components/complex-cases/add-comment-modal";
 import { eneoRegions, getRegionStats, getZoneStats, EneoRegion, EneoZone, EneoDeparture } from "@/lib/api/eneo-data";
-import { Search } from "lucide-react";
+import { AlertCircle, AlertTriangle, Search } from "lucide-react";
 import { toast } from "sonner";
 
 type ViewLevel = "regions" | "zones" | "departures" | "equipments";
@@ -223,7 +223,10 @@ export default function ComplexCasesPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Cas Complexes</h1>
+          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
+            <AlertCircle className="h-7 w-7 text-warning-foreground" />
+            Cas Complexes
+          </h1>
           <p className="text-muted-foreground mt-1">
             Cas necessitant une expertise particuliere et une validation approfondie
           </p>
