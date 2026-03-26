@@ -8,7 +8,6 @@ export interface User {
   lastName: string;
   company: string;
   role: UserRole;
-  department?: string;
   phone?: string;
   avatar?: string;
   isActive: boolean;
@@ -17,6 +16,7 @@ export interface User {
   tasksAssigned: number;
   tasksCompleted: number;
   occupancyRate: number;
+  status: string;
 }
 
 // Task types

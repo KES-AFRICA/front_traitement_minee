@@ -5,7 +5,8 @@ const MOCK_DELAY = 300;
 
 // API Configuration
 const API_CONFIG = {
-  baseUrl: process.env.NEXT_PUBLIC_API_URL || "/api",
+  //baseUrl: process.env.NEXT_PUBLIC_API_URL || "/api",
+  baseUrl: "/api",
   timeout: 10000,
 };
 

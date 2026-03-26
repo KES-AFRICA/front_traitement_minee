@@ -18,7 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { FilterBar } from "@/components/processing/filter-bar";
 import { taskService } from "@/lib/api/services/tasks";
 import { Task, TaskStatus, TaskPriority } from "@/lib/api/types";
@@ -30,7 +29,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Eye,
   ArrowUpCircle,
   ArrowRightCircle,
   ArrowDownCircle,

@@ -69,9 +69,9 @@ import {
   UserCheck,
 } from "lucide-react";
 
-type Company = "ENEO" | "KES";
+type Company = "ENEO" | "GROUPEMENT" | "ARSEL" | "MINEE";
 
-const COMPANIES: Company[] = ["ENEO", "KES"];
+const COMPANIES: Company[] = ["ENEO", "GROUPEMENT", "ARSEL", "MINEE"];
 
 const roleLabels: Record<UserRole, string> = {
   admin: "Administrateur",
@@ -89,8 +89,11 @@ const roleBadgeVariants: Record<UserRole, "default" | "secondary" | "destructive
 
 const companyBadgeVariants: Record<Company, "default" | "secondary"> = {
   ENEO: "secondary",
-  KES: "secondary",
+  GROUPEMENT: "secondary",
+  ARSEL: "secondary",
+  MINEE: "secondary"
 };
+
 
 export default function UsersPage() {
   const { t, language } = useI18n();
@@ -110,7 +113,6 @@ export default function UsersPage() {
     firstName: "",
     lastName: "",
     phone: "",
-    department: "",
     company: "" as Company | "",
     role: "processing_agent" as UserRole,
   });
@@ -163,7 +165,6 @@ export default function UsersPage() {
       firstName: "",
       lastName: "",
       phone: "",
-      department: "",
       company: "",
       role: "processing_agent",
     });
@@ -251,7 +252,6 @@ export default function UsersPage() {
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone || "",
-      department: user.department || "",
       company: (user.company as Company) || "",
       role: user.role,
     });
@@ -273,8 +273,8 @@ export default function UsersPage() {
     const activeCount = companyUsers.filter((u) => u.isActive).length;
     const totalCount = companyUsers.length;
     const activePercent = totalCount > 0 ? Math.round((activeCount / totalCount) * 100) : 0;
-    const totalPercent = stats.total > 0 ? Math.round((totalCount / stats.total) * 100) : 0;
-    return { company, totalCount, activeCount, activePercent, totalPercent };
+    const totalUser = stats.total;
+    return { company, totalCount, activeCount, activePercent, totalUser };
   });
 
   const canManageUsers = hasPermission("manage:users");
@@ -307,8 +307,8 @@ export default function UsersPage() {
       </div>
 
       {/* Company KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {companyStats.map(({ company, totalCount, activeCount, activePercent, totalPercent }) => (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {companyStats.map(({ company, totalCount, activeCount, activePercent, totalUser }) => (
           <Card key={company}>
             <CardHeader>
               <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
@@ -321,7 +321,7 @@ export default function UsersPage() {
                 <div>
                   <p className="text-3xl font-bold">{totalCount}</p>
                   <p className="text-xs text-muted-foreground">
-                    utilisateurs ({totalPercent}% du total)
+                    utilisateurs sur {totalUser}
                   </p>
                 </div>
                 <div className="text-right">
@@ -352,7 +352,7 @@ export default function UsersPage() {
             placeholder={t("common.search")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 bg-white"
           />
         </div>
         <Select
@@ -382,8 +382,8 @@ export default function UsersPage() {
               <TableHead>Utilisateur</TableHead>
               <TableHead>{t("common.role")}</TableHead>
               <TableHead>Entreprise</TableHead>
-              <TableHead>{t("users.department")}</TableHead>
-              <TableHead>{t("users.occupancyRate")}</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>{t("users.lastLogin")}</TableHead>
               <TableHead>{t("common.status")}</TableHead>
               {canManageUsers && <TableHead className="w-12" />}
             </TableRow>
@@ -397,6 +397,7 @@ export default function UsersPage() {
                   <TableCell><Skeleton className="h-6 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                   <TableCell><Skeleton className="h-2 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-8 w-8" /></TableCell>
                 </TableRow>
@@ -440,13 +441,13 @@ export default function UsersPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {user.department || "-"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Progress value={user.occupancyRate} className="w-16 h-2" />
-                      <span className="text-sm">{user.occupancyRate}%</span>
+                    
+                    <div className={`rounded-2xl text-center p-1 ${user.status=="en ligne" ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"}`}>
+                      {user.status || "-"}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(user.lastLogin)}
                   </TableCell>
                   <TableCell>
                     <Badge variant={user.isActive ? "default" : "secondary"}>
@@ -585,7 +586,6 @@ interface UserFormProps {
     firstName: string;
     lastName: string;
     phone: string;
-    department: string;
     company: Company | "";
     role: UserRole;
   };
@@ -659,20 +659,7 @@ function UserForm({ formData, setFormData, t }: UserFormProps) {
 
       {/* Section : Organisation */}
       <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Organisation
-        </p>
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="department">{t("users.department")}</Label>
-            <Input
-              id="department"
-              value={formData.department}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, department: e.target.value }))
-              }
-            />
-          </div>
 
           {/* Entreprise + Rôle : toujours en colonne sur mobile, côte à côte sur sm+ */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

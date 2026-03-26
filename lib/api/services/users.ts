@@ -36,9 +36,6 @@ class UserService {
     if (filters.isActive !== undefined) {
       filteredUsers = filteredUsers.filter((u) => u.isActive === filters.isActive);
     }
-    if (filters.department) {
-      filteredUsers = filteredUsers.filter((u) => u.department === filters.department);
-    }
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       filteredUsers = filteredUsers.filter(
@@ -86,13 +83,14 @@ class UserService {
       firstName: userData.firstName || "",
       lastName: userData.lastName || "",
       role: userData.role || "processing_agent",
-      department: userData.department,
       phone: userData.phone,
       isActive: true,
       createdAt: new Date().toISOString(),
       tasksAssigned: 0,
       tasksCompleted: 0,
       occupancyRate: 0,
+      status:'hors ligne',
+      company:userData.company || ""
     };
 
     this.users.push(newUser);
