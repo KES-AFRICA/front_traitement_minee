@@ -88,15 +88,10 @@ export default function LoginPage() {
             </h1>
           </div>
 
-          <div className="space-y-6">
-            <div className="grid gap-4">
+          <div className="space-y-2">
+            <div className="grid gap-2 container mx-auto w-1/2">
               <FeatureItem
                 title="Traitement Intelligent"
-                description="Détection automatique des anomalies"
-              />
-              <FeatureItem
-                title="Export SIG/AUTOCAD"
-                description="Préparation pour cartographie"
               />
             </div>
           </div>
@@ -273,13 +268,26 @@ export default function LoginPage() {
   );
 }
 
-function FeatureItem({ title, description }: { title: string; description: string }) {
+function FeatureItem({ title }: { title: string }) {
+  const subPoints = [
+    "Gestion des doublons",
+    "Gestion des divergences",
+    "Gestion des cas complexes",
+  ];
+
   return (
-    <div className="flex items-start gap-3 p-3 rounded-lg bg-sidebar-accent/30 border border-sidebar-border/50 backdrop-blur-sm">
+    <div className="flex items-start gap-2 p-2 mx-7 rounded-lg bg-sidebar-accent/30 border border-sidebar-border/50 backdrop-blur-sm">
       <div className="w-2 h-2 rounded-full bg-sidebar-primary mt-2" />
       <div>
         <p className="font-medium text-white">{title}</p>
-        <p className="text-sm text-white/90">{description}</p>
+        <ul className="mt-1 space-y-1">
+          {subPoints.map((point, index) => (
+            <li key={index} className="text-sm text-white/90 flex items-start gap-1.5">
+              <span className="text-sidebar-primary">•</span>
+              {point}
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
