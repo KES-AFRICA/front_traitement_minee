@@ -273,6 +273,7 @@ function FeatureItem({ title }: { title: string }) {
     "Gestion des doublons",
     "Gestion des divergences",
     "Gestion des cas complexes",
+    "Gestion des nouveaux actifs"
   ];
 
   return (
