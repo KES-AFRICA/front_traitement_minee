@@ -677,7 +677,7 @@ export default function MissingRecordsPage() {
       {/* Content based on view level */}
       {viewLevel === "regions" && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Regions ENEO ({filteredRegions.length})</h2>
+          <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredRegions.map((region) => {
               const stats = getRegionStats(region.id);
