@@ -161,6 +161,7 @@ export function AppSidebar() {
                     key={item.title}
                     asChild
                     defaultOpen={item.items.some((sub) => pathname.startsWith(sub.url))}
+                    className="group/collapsible"
                   >
                     <SidebarMenuItem>
                       <CollapsibleTrigger asChild>

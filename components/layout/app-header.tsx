@@ -23,6 +23,7 @@ const pathTitles: Record<string, { key: string; parent?: string }> = {
   "/processing/differences": { key: "nav.differences", parent: "/processing" },
   "/processing/new-kobo": { key: "nav.newKobo", parent: "/processing" },
   "/processing/missing-eneo": { key: "nav.missingEneo", parent: "/processing" },
+  "/processing/complex": { key: "nav.complexCases", parent: "/processing" },
   "/validation": { key: "nav.validation" },
   "/users": { key: "nav.users" },
   "/map": { key: "nav.map" },
@@ -57,7 +58,7 @@ export function AppHeader() {
             )}
             <BreadcrumbItem>
               <BreadcrumbPage>
-                {currentPath ? t(currentPath.key as Parameters<typeof t>[0]) : "Page"}
+                {currentPath ? t(currentPath.key as Parameters<typeof t>[0]) : t("nav.dashboard")}
               </BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
