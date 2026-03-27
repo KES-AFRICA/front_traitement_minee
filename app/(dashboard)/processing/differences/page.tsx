@@ -10,86 +10,327 @@ import { DepartureCard } from "@/components/complex-cases/departure-card";
 import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filter";
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
-import { GitCompare, Search } from "lucide-react";
+import { GitCompare, Search, CheckCircle, XCircle, Eye } from "lucide-react";
 import { toast } from "sonner";
-import { eneoRegions, getRegionStats, getZoneStats, EneoRegion, EneoZone, EneoDeparture  } from "@/lib/api/eneo-data";
+import { 
+  eneoRegions, 
+  getAnomaliesByFeeder, 
+  getComparisonStats,
+  EneoRegion, 
+  EneoZone, 
+  EneoDeparture,
+  AnomalyCase
+  
+} from "@/lib/api/eneo-data";
+import { DivergentField } from "@/lib/types/eneo-assets";
 
 // Types pour les divergences
 type DivergenceSeverity = "critical" | "high" | "medium" | "low";
 type DivergenceStatus = "pending" | "analyzing" | "resolved" | "ignored";
 
+// Interface pour une divergence enrichie avec les données de comparaison
 interface Divergence {
   id: string;
   code: string;
   type: string;
+  table: string;
   description: string;
   severity: DivergenceSeverity;
   status: DivergenceStatus;
   detectedAt: string;
   assignedTo?: string;
   departureCode?: string;
+  // Données de comparaison
+  layer1Record: Record<string, unknown> | null;
+  layer2Record: Record<string, unknown> | null;
+  divergentFields: DivergentField[];
+  mrid: string | number;
 }
 
 type ViewLevel = "regions" | "zones" | "departures" | "divergences";
 
-// Générer des divergences mock
-function generateMockDivergences(departureId: string, count: number): Divergence[] {
-  const types = [
-    "Écart de consommation",
-    "Incohérence de facturation",
-    "Défaut de comptage",
-    "Anomalie de relevé",
-    "Non-conformité technique"
-  ];
-  const descriptions = [
-    "Différence de 15% entre la consommation relevée et estimée",
-    "Écart de facturation sur les 3 derniers mois",
-    "Compteur défaillant nécessitant un remplacement",
-    "Incohérence dans les données de relevé terrain",
-    "Non-respect des spécifications techniques installées",
-    "Anomalie détectée lors de l'audit énergétique"
-  ];
-  const severities: DivergenceSeverity[] = ["critical", "high", "medium", "low"];
-  const statuses: DivergenceStatus[] = ["pending", "analyzing", "resolved", "ignored"];
-  const users = ["Jean Dupont", "Marie Kouam", "Paul Ndi", "Claire Biya", undefined];
-
-  const divergences: Divergence[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const detectedDate = new Date(Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000));
-    
-    divergences.push({
-      id: `${departureId}-div-${i + 1}`,
-      code: `DIV-${departureId.toUpperCase()}-${String(i + 1).padStart(3, "0")}`,
-      type: types[Math.floor(Math.random() * types.length)],
-      description: descriptions[Math.floor(Math.random() * descriptions.length)],
-      severity: severities[Math.floor(Math.random() * severities.length)],
-      status: statuses[Math.floor(Math.random() * statuses.length)],
-      detectedAt: detectedDate.toLocaleDateString("fr-FR"),
-      assignedTo: users[Math.floor(Math.random() * users.length)],
-      departureCode: `DEP-${departureId.toUpperCase()}`,
-    });
-  }
-
-  return divergences;
+// Calculer la sévérité en fonction du nombre et du type de champs divergents
+function calculateSeverity(divergentFields: DivergentField[], table: string): DivergenceSeverity {
+  // Champs critiques qui méritent une attention particulière
+  const criticalFields = ["voltage", "apparent_power", "type", "phase", "active"];
+  
+  const criticalCount = divergentFields.filter(f => 
+    criticalFields.includes(f.field) || 
+    f.field.includes("voltage") || 
+    f.field.includes("power")
+  ).length;
+  
+  if (criticalCount >= 2) return "critical";
+  if (criticalCount >= 1 || divergentFields.length >= 5) return "high";
+  if (divergentFields.length >= 3) return "medium";
+  return "low";
 }
 
-// Composant pour afficher une divergence (à créer séparément si besoin)
+// Convertir une anomalie de type "divergence" en Divergence
+function convertAnomalyToDivergence(anomaly: AnomalyCase): Divergence | null {
+  if (anomaly.type !== "divergence" || !anomaly.divergentFields) return null;
+  
+  // Générer une description lisible des divergences
+  const fieldDescriptions = anomaly.divergentFields.map(f => {
+    const oldVal = formatValueForDisplay(f.layer1Value);
+    const newVal = formatValueForDisplay(f.layer2Value);
+    return `${getFieldLabel(f.field)}: "${oldVal}" → "${newVal}"`;
+  });
+  
+  const description = `${fieldDescriptions.length} différence(s) détectée(s) : ${fieldDescriptions.join(", ")}`;
+  
+  // Obtenir un code lisible pour l'affichage
+  const recordName = anomaly.layer1Record?.name || anomaly.layer2Record?.name || anomaly.mrid.toString();
+  const code = `${anomaly.table.toUpperCase()}-${recordName}`;
+  
+  // Calculer la sévérité
+  const severity = calculateSeverity(anomaly.divergentFields, anomaly.table);
+  
+  return {
+    id: anomaly.id,
+    code: code.substring(0, 50),
+    type: getEquipmentTypeLabel(anomaly.table),
+    table: anomaly.table,
+    description: description.substring(0, 200),
+    severity,
+    status: "pending",
+    detectedAt: new Date().toISOString().split('T')[0],
+    assignedTo: undefined,
+    departureCode: anomaly.feederName,
+    layer1Record: anomaly.layer1Record,
+    layer2Record: anomaly.layer2Record,
+    divergentFields: anomaly.divergentFields,
+    mrid: anomaly.mrid,
+  };
+}
+
+// Formater une valeur pour l'affichage
+function formatValueForDisplay(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (value instanceof Date) return value.toLocaleString();
+  if (typeof value === "object") return JSON.stringify(value).substring(0, 50);
+  return String(value).substring(0, 30);
+}
+
+// Obtenir le libellé d'un champ
+function getFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    // Champs communs
+    name: "Nom",
+    code: "Code",
+    active: "Actif",
+    type: "Type",
+    voltage: "Tension (kV)",
+    phase: "Phase",
+    
+    // Substation
+    highest_voltage_level: "Niveau tension max",
+    exploitation: "Exploitation",
+    localisation: "Localisation",
+    regime: "Régime",
+    zone_type: "Type de zone",
+    
+    // PowerTransformer
+    apparent_power: "Puissance (kVA)",
+    w1_voltage: "Tension primaire",
+    w2_voltage: "Tension secondaire",
+    
+    // Switch
+    nature: "Nature",
+    normal_open: "Normalement ouvert",
+    
+    // Pole
+    height: "Hauteur (m)",
+    installation_date: "Date installation",
+    lastvisit_date: "Dernière visite",
+  };
+  return labels[field] || field;
+}
+
+// Obtenir le libellé du type d'équipement
+function getEquipmentTypeLabel(table: string): string {
+  const labels: Record<string, string> = {
+    substation: "Poste source",
+    powertransformer: "Transformateur",
+    busbar: "Jeu de barres",
+    bay: "Départ",
+    switch: "Disjoncteur",
+    wire: "Ligne",
+    pole: "Poteau",
+    node: "Nœud réseau",
+    feeder: "Départ",
+  };
+  return labels[table] || table;
+}
+
+// Composant pour comparer les deux enregistrements côte à côte
+function ComparisonView({ 
+  divergence, 
+  onAccept, 
+  onReject, 
+  onIgnore 
+}: { 
+  divergence: Divergence;
+  onAccept: () => void;
+  onReject: () => void;
+  onIgnore: () => void;
+}) {
+  const [selectedAction, setSelectedAction] = useState<"accept" | "reject" | null>(null);
+  
+  if (!divergence.layer1Record || !divergence.layer2Record) return null;
+  
+  // Tous les champs à comparer (hors m_rid)
+  const allFields = new Set([
+    ...Object.keys(divergence.layer1Record).filter(k => k !== "m_rid"),
+    ...Object.keys(divergence.layer2Record).filter(k => k !== "m_rid")
+  ]);
+  
+  // Champs divergents pour mise en évidence
+  const divergentFieldSet = new Set(divergence.divergentFields.map(f => f.field));
+  
+  const fieldsList = Array.from(allFields).sort();
+  
+  return (
+    <div className="space-y-6">
+      {/* En-tête */}
+      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-orange-800">Divergence détectée</h3>
+            <p className="text-sm text-orange-600 mt-1">
+              Les données de collecte terrain ne correspondent pas à la référence
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSelectedAction("accept")}
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                selectedAction === "accept" 
+                  ? "bg-green-600 text-white" 
+                  : "bg-green-100 text-green-700 hover:bg-green-200"
+              }`}
+            >
+              <CheckCircle className="h-4 w-4" />
+              Accepter terrain
+            </button>
+            <button
+              onClick={() => setSelectedAction("reject")}
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                selectedAction === "reject" 
+                  ? "bg-blue-600 text-white" 
+                  : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+              }`}
+            >
+              <CheckCircle className="h-4 w-4" />
+              Garder référence
+            </button>
+            <button
+              onClick={onIgnore}
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"
+            >
+              <XCircle className="h-4 w-4" />
+              Ignorer
+            </button>
+          </div>
+        </div>
+        
+        {selectedAction && (
+          <div className="mt-4 pt-4 border-t border-orange-200">
+            <p className="text-sm text-gray-600 mb-3">
+              {selectedAction === "accept" 
+                ? "Les données de collecte terrain remplaceront les données de référence." 
+                : "Les données de référence seront conservées, les données terrain seront ignorées pour ce champ."}
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={selectedAction === "accept" ? onAccept : onReject}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                Confirmer
+              </button>
+              <button
+                onClick={() => setSelectedAction(null)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Informations supplémentaires */}
+      <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+                <div className="font-bold text-black uppercase">
+          <span>Type équipement:</span> {divergence.type}
+        </div>
+        <div>
+          <span className="font-medium">ID technique:</span> {divergence.mrid}
+        </div>
+
+        {divergence.departureCode && (
+          <div>
+            <span className="font-medium">Départ:</span> {divergence.departureCode}
+          </div>
+        )}
+      </div>
+      
+      {/* Table de comparaison */}
+      <div className="border rounded-lg overflow-hidden">
+        <div className="grid grid-cols-3 bg-muted/50 border-b">
+          <div className="p-3 font-medium">Champ</div>
+          <div className="p-3 font-medium border-l">BD1 - Référence</div>
+          <div className="p-3 font-medium border-l">BD2 - Collecte terrain</div>
+        </div>
+        
+        {fieldsList.map(field => {
+          const value1 = divergence.layer1Record?.[field];
+          const value2 = divergence.layer2Record?.[field];
+          const isDivergent = divergentFieldSet.has(field);
+          const formatted1 = formatValueForDisplay(value1);
+          const formatted2 = formatValueForDisplay(value2);
+          
+          return (
+            <div key={field} className={`grid grid-cols-3 border-b ${isDivergent ? 'bg-yellow-50' : ''}`}>
+              <div className="p-3 text-sm font-medium">
+                {getFieldLabel(field)}
+                {isDivergent && (
+                  <span className="ml-2 text-xs bg-yellow-200 text-yellow-800 px-1 rounded">
+                    divergent
+                  </span>
+                )}
+              </div>
+              <div className={`p-3 text-sm border-l ${isDivergent ? 'line-through text-muted-foreground' : ''}`}>
+                {formatted1}
+              </div>
+              <div className={`p-3 text-sm border-l font-mono ${isDivergent ? 'bg-yellow-100 font-medium' : ''}`}>
+                {formatted2}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      
+    </div>
+  );
+}
+
+// Composant principal de la table des divergences
 function DivergenceTable({ 
   divergences, 
   onView, 
-  onAnalyze, 
-  onResolve, 
+  onAccept, 
+  onReject, 
   onIgnore,
-  onAddComment,
   onBulkAction 
 }: { 
   divergences: Divergence[];
   onView: (divergence: Divergence) => void;
-  onAnalyze: (divergence: Divergence) => void;
-  onResolve: (divergence: Divergence) => void;
+  onAccept: (divergence: Divergence) => void;
+  onReject: (divergence: Divergence) => void;
   onIgnore: (divergence: Divergence) => void;
-  onAddComment: (divergence: Divergence) => void;
   onBulkAction: (ids: string[], action: string) => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -102,6 +343,16 @@ function DivergenceTable({
       case "medium": return "text-yellow-600 bg-yellow-100";
       case "low": return "text-blue-600 bg-blue-100";
       default: return "text-gray-600 bg-gray-100";
+    }
+  };
+
+  const getSeverityLabel = (severity: DivergenceSeverity) => {
+    switch (severity) {
+      case "critical": return "Critique";
+      case "high": return "Élevée";
+      case "medium": return "Moyenne";
+      case "low": return "Faible";
+      default: return severity;
     }
   };
 
@@ -160,23 +411,23 @@ function DivergenceTable({
         {selectedIds.length > 0 && (
           <div className="flex gap-2">
             <button
-              onClick={() => onBulkAction(selectedIds, "analyze")}
-              className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-            >
-              Analyser ({selectedIds.length})
-            </button>
-            <button
-              onClick={() => onBulkAction(selectedIds, "resolve")}
+              onClick={() => onBulkAction(selectedIds, "accept")}
               className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600"
             >
-              Résoudre ({selectedIds.length})
+              Accepter ({selectedIds.length})
+            </button>
+            <button
+              onClick={() => onBulkAction(selectedIds, "reject")}
+              className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+            >
+              Garder référence ({selectedIds.length})
             </button>
           </div>
         )}
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full">
+      <div className="border rounded-lg overflow-x-auto">
+        <table className="w-full min-w-[800px]">
           <thead className="bg-muted/50">
             <tr className="border-b">
               <th className="w-8 p-3">
@@ -187,15 +438,13 @@ function DivergenceTable({
                   className="rounded border-gray-300"
                 />
               </th>
-              <th className="text-left p-3 font-medium">Code</th>
+              <th className="text-left p-3 font-medium">Code / Équipement</th>
               <th className="text-left p-3 font-medium">Type</th>
-              <th className="text-left p-3 font-medium">Description</th>
+              <th className="text-left p-3 font-medium">Champs divergents</th>
               <th className="text-left p-3 font-medium">Sévérité</th>
               <th className="text-left p-3 font-medium">Statut</th>
-              <th className="text-left p-3 font-medium">Détecté le</th>
-              <th className="text-left p-3 font-medium">Assigné à</th>
               <th className="text-left p-3 font-medium">Actions</th>
-            </tr>
+             </tr>
           </thead>
           <tbody>
             {filteredDivergences.map((divergence) => (
@@ -208,14 +457,33 @@ function DivergenceTable({
                     className="rounded border-gray-300"
                   />
                 </td>
-                <td className="p-3 font-mono text-sm">{divergence.code}</td>
+                <td className="p-3">
+                  <div className="font-mono text-sm">{divergence.code}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    ID: {divergence.mrid}
+                  </div>
+                </td>
                 <td className="p-3">{divergence.type}</td>
-                <td className="p-3 max-w-xs truncate">{divergence.description}</td>
+                <td className="p-3">
+                  <div className="space-y-1">
+                    {divergence.divergentFields.slice(0, 3).map((f, idx) => (
+                      <div key={idx} className="text-xs">
+                        <span className="font-medium">{getFieldLabel(f.field)}</span>
+                        <span className="text-muted-foreground ml-1">
+                          → {formatValueForDisplay(f.layer2Value)}
+                        </span>
+                      </div>
+                    ))}
+                    {divergence.divergentFields.length > 3 && (
+                      <div className="text-xs text-muted-foreground">
+                        +{divergence.divergentFields.length - 3} autre(s)
+                      </div>
+                    )}
+                  </div>
+                </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getSeverityColor(divergence.severity)}`}>
-                    {divergence.severity === "critical" ? "Critique" :
-                     divergence.severity === "high" ? "Élevée" :
-                     divergence.severity === "medium" ? "Moyenne" : "Faible"}
+                    {getSeverityLabel(divergence.severity)}
                   </span>
                 </td>
                 <td className="p-3">
@@ -223,38 +491,16 @@ function DivergenceTable({
                     {getStatusLabel(divergence.status)}
                   </span>
                 </td>
-                <td className="p-3 text-sm">{divergence.detectedAt}</td>
-                <td className="p-3 text-sm">{divergence.assignedTo || "Non assigné"}</td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
                       onClick={() => onView(divergence)}
-                      className="text-blue-600 hover:text-blue-800 text-sm"
+                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1 cursor-pointer"
                     >
-                      Voir
+                      <Eye className="h-3 w-3" />
+                      Comparer
                     </button>
-                    {divergence.status === "pending" && (
-                      <button
-                        onClick={() => onAnalyze(divergence)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        Analyser
-                      </button>
-                    )}
-                    {divergence.status === "analyzing" && (
-                      <button
-                        onClick={() => onResolve(divergence)}
-                        className="text-green-600 hover:text-green-800 text-sm"
-                      >
-                        Résoudre
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onAddComment(divergence)}
-                      className="text-gray-600 hover:text-gray-800 text-sm"
-                    >
-                      Commentaire
-                    </button>
+                    
                   </div>
                 </td>
               </tr>
@@ -263,7 +509,7 @@ function DivergenceTable({
         </table>
         {filteredDivergences.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
-            Aucune divergence trouvée
+            Aucune divergence trouvée pour ce départ
           </div>
         )}
       </div>
@@ -276,119 +522,38 @@ function DivergenceDetailModal({
   divergence, 
   isOpen, 
   onClose, 
-  onAnalyze, 
-  onResolve, 
-  onIgnore,
-  onAddComment 
+  onAccept, 
+  onReject, 
+  onIgnore 
 }: { 
   divergence: Divergence | null;
   isOpen: boolean;
   onClose: () => void;
-  onAnalyze: (divergence: Divergence) => void;
-  onResolve: (divergence: Divergence) => void;
+  onAccept: (divergence: Divergence) => void;
+  onReject: (divergence: Divergence) => void;
   onIgnore: (divergence: Divergence) => void;
-  onAddComment: (divergence: Divergence, comment: string) => void;
 }) {
-  const [comment, setComment] = useState("");
-
   if (!isOpen || !divergence) return null;
-
-  const handleAddComment = () => {
-    if (comment.trim()) {
-      onAddComment(divergence, comment);
-      setComment("");
-    }
-  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+      <div className="bg-white rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Détails de la divergence</h2>
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <GitCompare className="h-5 w-5 text-orange-500" />
+            Comparaison des données
+          </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             ✕
           </button>
         </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">Code</label>
-            <p className="font-mono">{divergence.code}</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">Type</label>
-            <p>{divergence.type}</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">Description</label>
-            <p className="text-gray-700">{divergence.description}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Sévérité</label>
-              <p className="capitalize">{divergence.severity}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-muted-foreground">Statut</label>
-              <p className="capitalize">{divergence.status}</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">Date de détection</label>
-            <p>{divergence.detectedAt}</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">Assigné à</label>
-            <p>{divergence.assignedTo || "Non assigné"}</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-muted-foreground">Ajouter un commentaire</label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              className="w-full p-2 border rounded-md mt-1"
-              rows={3}
-              placeholder="Ajoutez un commentaire..."
-            />
-            <button
-              onClick={handleAddComment}
-              className="mt-2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-            >
-              Ajouter
-            </button>
-          </div>
-
-          <div className="flex gap-2 pt-4 border-t">
-            {divergence.status === "pending" && (
-              <button
-                onClick={() => onAnalyze(divergence)}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                Analyser
-              </button>
-            )}
-            {divergence.status === "analyzing" && (
-              <button
-                onClick={() => onResolve(divergence)}
-                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-              >
-                Résoudre
-              </button>
-            )}
-            <button
-              onClick={() => onIgnore(divergence)}
-              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-            >
-              Ignorer
-            </button>
-          </div>
-        </div>
+        
+        <ComparisonView 
+          divergence={divergence}
+          onAccept={() => onAccept(divergence)}
+          onReject={() => onReject(divergence)}
+          onIgnore={() => onIgnore(divergence)}
+        />
       </div>
     </div>
   );
@@ -411,12 +576,23 @@ export default function DivergencesPage() {
   const [selectedDivergence, setSelectedDivergence] = useState<Divergence | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
-  // Generate divergences for selected departure
+  // Récupérer les vraies divergences pour le départ sélectionné
   const divergences = useMemo(() => {
-    if (selectedDeparture) {
-      return generateMockDivergences(selectedDeparture.id, selectedDeparture.equipmentCount);
+    if (!selectedDeparture) return [];
+    
+    // Récupérer les anomalies de type "divergence" pour ce départ
+    const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "divergence");
+    
+    // Convertir chaque anomalie en Divergence
+    const divergenceRecords: Divergence[] = [];
+    for (const anomaly of anomalies) {
+      const converted = convertAnomalyToDivergence(anomaly);
+      if (converted) {
+        divergenceRecords.push(converted);
+      }
     }
-    return [];
+    
+    return divergenceRecords;
   }, [selectedDeparture]);
 
   // Filter divergences
@@ -431,28 +607,24 @@ export default function DivergencesPage() {
     );
   }, [divergences, searchQuery]);
 
-  // Calculate global stats
+  // Calculer les stats globales
   const globalStats = useMemo(() => {
-    let total = 0;
-    let critical = 0;
-    let high = 0;
-    let medium = 0;
-    let low = 0;
-    let resolved = 0;
-
+    let totalDivergences = 0;
+    
     eneoRegions.forEach((region) => {
-      const stats = getRegionStats(region.id);
-      total += stats.total;
-      critical += stats.pending;
-      high += stats.inProgress;
-      medium += stats.completed;
+      region.zones.forEach((zone) => {
+        zone.departures.forEach((departure) => {
+          const anomalies = getAnomaliesByFeeder(departure.feederId, "divergence");
+          totalDivergences += anomalies.length;
+        });
+      });
     });
 
     return {
-      total,
-      pendingAndInProgress: critical + high,
-      completed: medium,
-      completionRate: total > 0 ? Math.round((medium / total) * 100) : 0,
+      total: totalDivergences,
+      pendingAndInProgress: totalDivergences,
+      completed: 0,
+      completionRate: 0,
     };
   }, []);
 
@@ -513,13 +685,13 @@ export default function DivergencesPage() {
     setIsDetailModalOpen(true);
   };
 
-  const handleAnalyzeDivergence = (divergence: Divergence) => {
-    toast.success(`Analyse lancée pour ${divergence.code}`);
+  const handleAcceptDivergence = (divergence: Divergence) => {
+    toast.success(`Données terrain acceptées pour ${divergence.code}`);
     setIsDetailModalOpen(false);
   };
 
-  const handleResolveDivergence = (divergence: Divergence) => {
-    toast.success(`Divergence ${divergence.code} résolue`);
+  const handleRejectDivergence = (divergence: Divergence) => {
+    toast.success(`Données de référence conservées pour ${divergence.code}`);
     setIsDetailModalOpen(false);
   };
 
@@ -528,13 +700,9 @@ export default function DivergencesPage() {
     setIsDetailModalOpen(false);
   };
 
-  const handleAddComment = (divergence: Divergence, comment: string) => {
-    toast.success(`Commentaire ajouté pour ${divergence.code}`);
-    setIsDetailModalOpen(false);
-  };
-
   const handleBulkAction = (divergenceIds: string[], action: string) => {
-    toast.success(`${divergenceIds.length} divergence(s) ${action === "analyze" ? "en cours d'analyse" : "résolues"}`);
+    const actionLabel = action === "accept" ? "acceptées" : "conservées en référence";
+    toast.success(`${divergenceIds.length} divergence(s) ${actionLabel}`);
   };
 
   // Filter regions by search
@@ -549,7 +717,6 @@ export default function DivergencesPage() {
     );
   }, [searchQuery]);
 
-  // Filter zones by search
   const filteredZones = useMemo(() => {
     if (!selectedRegion) return [];
     if (!searchQuery) return selectedRegion.zones;
@@ -559,7 +726,6 @@ export default function DivergencesPage() {
     );
   }, [selectedRegion, searchQuery]);
 
-  // Filter departures by search
   const filteredDepartures = useMemo(() => {
     if (!selectedZone) return [];
     if (!searchQuery) return selectedZone.departures;
@@ -579,7 +745,7 @@ export default function DivergencesPage() {
             Divergences
           </h1>
           <p className="text-muted-foreground mt-1">
-            Divergences d'enregistrement nécessitant une analyse et une correction
+            Comparaison entre les données de référence (BD1) et la collecte terrain (BD2)
           </p>
         </div>
         <PeriodFilter value={period} onChange={setPeriod} />
@@ -617,7 +783,20 @@ export default function DivergencesPage() {
           <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredRegions.map((region) => {
-              const stats = getRegionStats(region.id);
+              let regionDivergenceCount = 0;
+              region.zones.forEach(zone => {
+                zone.departures.forEach(departure => {
+                  regionDivergenceCount += getAnomaliesByFeeder(departure.feederId, "divergence").length;
+                });
+              });
+              
+              const stats = {
+                total: regionDivergenceCount,
+                pending: regionDivergenceCount,
+                inProgress: 0,
+                completed: 0
+              };
+              
               return (
                 <RegionCard
                   key={region.id}
@@ -646,7 +825,18 @@ export default function DivergencesPage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredZones.map((zone) => {
-              const stats = getZoneStats(zone.id);
+              let zoneDivergenceCount = 0;
+              zone.departures.forEach(departure => {
+                zoneDivergenceCount += getAnomaliesByFeeder(departure.feederId, "divergence").length;
+              });
+              
+              const stats = {
+                total: zoneDivergenceCount,
+                pending: zoneDivergenceCount,
+                inProgress: 0,
+                completed: 0
+              };
+              
               return (
                 <ZoneCard
                   key={zone.id}
@@ -670,20 +860,19 @@ export default function DivergencesPage() {
       {viewLevel === "departures" && selectedZone && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Departs de {selectedZone.name} ({filteredDepartures.length})
+            Départs de {selectedZone.name} ({filteredDepartures.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredDepartures.map((departure) => {
-              const completed = Math.floor(departure.equipmentCount * 0.6);
-              const pending = departure.equipmentCount - completed;
+              const divergenceCount = getAnomaliesByFeeder(departure.feederId, "divergence").length;
               return (
                 <DepartureCard
                   key={departure.id}
                   code={departure.code}
                   name={departure.name}
-                  equipmentCount={departure.equipmentCount}
-                  completedCount={completed}
-                  pendingCount={pending}
+                  equipmentCount={divergenceCount}
+                  completedCount={0}
+                  pendingCount={divergenceCount}
                   onClick={() => handleDepartureClick(departure)}
                 />
               );
@@ -691,7 +880,7 @@ export default function DivergencesPage() {
           </div>
           {filteredDepartures.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              Aucun depart trouvé pour &quot;{searchQuery}&quot;
+              Aucun départ trouvé pour &quot;{searchQuery}&quot;
             </div>
           )}
         </div>
@@ -701,30 +890,27 @@ export default function DivergencesPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">
-              Divergences du depart {selectedDeparture.code} ({filteredDivergences.length})
+              Divergences du départ {selectedDeparture.code} ({filteredDivergences.length})
             </h2>
           </div>
           
           <Card>
             <CardHeader>
-              <CardTitle>Liste des divergences d'enregistrement</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <GitCompare className="h-5 w-5 text-orange-500" />
+                Liste des divergences
+              </CardTitle>
               <CardDescription>
-                Gérez les divergences détectées pour le depart {selectedDeparture.name}
+                Comparez les données de référence (BD1) avec les données de collecte terrain (BD2) pour le départ {selectedDeparture.name}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <DivergenceTable
                 divergences={filteredDivergences}
                 onView={handleViewDivergence}
-                onAnalyze={handleAnalyzeDivergence}
-                onResolve={handleResolveDivergence}
+                onAccept={handleAcceptDivergence}
+                onReject={handleRejectDivergence}
                 onIgnore={handleIgnoreDivergence}
-                onAddComment={(div) => {
-                  setSelectedDivergence(div);
-                  // Ouvrir modal de commentaire si besoin
-                  const comment = prompt("Ajouter un commentaire:");
-                  if (comment) handleAddComment(div, comment);
-                }}
                 onBulkAction={handleBulkAction}
               />
             </CardContent>
@@ -737,10 +923,9 @@ export default function DivergencesPage() {
         divergence={selectedDivergence}
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
-        onAnalyze={handleAnalyzeDivergence}
-        onResolve={handleResolveDivergence}
+        onAccept={handleAcceptDivergence}
+        onReject={handleRejectDivergence}
         onIgnore={handleIgnoreDivergence}
-        onAddComment={handleAddComment}
       />
     </div>
   );
