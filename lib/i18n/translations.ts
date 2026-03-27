@@ -55,7 +55,7 @@ export const translations = {
     // Navigation
     nav: {
       dashboard: "Tableau de bord",
-      processing: "Traitement des donnees",
+      processing: "Traitement",
       validation: "Validation",
       users: "Utilisateurs",
       map: "Carte globale",
@@ -310,7 +310,7 @@ export const translations = {
     // Navigation
     nav: {
     dashboard: "Dashboard",
-    processing: "Data Processing",
+    processing: "Processing",
     validation: "Validation",
     users: "Users",
     map: "Global Map",

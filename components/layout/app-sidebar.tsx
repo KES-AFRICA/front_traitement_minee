@@ -36,19 +36,20 @@ import {
   CheckSquare,
   Users,
   Map,
-  BarChart3,
   Settings,
   LogOut,
   ChevronRight,
-  Droplets,
-  Zap,
-  Copy,
-  GitCompare,
-  FilePlus,
   FileX,
   User,
   AlertCircle,
   Bell,
+  DollarSign,
+  Building2,
+  Bolt,
+  Copy,
+  GitCompare,
+  FilePlus,
+  Zap,
 } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 
@@ -114,14 +115,14 @@ export function AppSidebar() {
     },
     {
       title: "Distribution",
-      icon: Droplets,
+      icon: Zap,
       type: "section-dropdown",
       color: "text-blue-500",
       bgColor: "bg-blue-500/10",
       borderColor: "border-l-blue-500",
       items: [
         {
-          title: t("nav.processing"),
+          title: "Traitement",
           icon: Database,
           permission: "view:processing",
           items: [
@@ -158,50 +159,35 @@ export function AppSidebar() {
           icon: CheckSquare,
           permission: "view:validation",
         },
-        {
-          title: t("nav.notifications"),
-          url: "/notifications",
-          icon: Bell,
-        },
       ],
     },
     {
       title: "Commercial",
-      icon: Zap,
+      icon: DollarSign,
       type: "section-dropdown",
       color: "text-emerald-500",
       bgColor: "bg-emerald-500/10",
       borderColor: "border-l-emerald-500",
       items: [
         {
-          title: t("nav.processing"),
+          title: "Traitement",
           icon: Database,
           permission: "view:processing",
           items: [
             {
-              title: t("nav.duplicates"),
+              title: "Vérifications",
               url: "/processing/duplicates",
-              icon: Copy,
+              icon: CheckSquare,
             },
             {
-              title: t("nav.differences"),
-              url: "/processing/differences",
-              icon: GitCompare,
-            },
-            {
-              title: t("nav.newKobo"),
-              url: "/processing/new-kobo",
-              icon: FilePlus,
-            },
-            {
-              title: t("nav.missingEneo"),
-              url: "/processing/missing-eneo",
-              icon: FileX,
-            },
-            {
-              title: t("nav.complexCases"),
+              title: "Cas complexes",
               url: "/processing/complex",
               icon: AlertCircle,
+            },
+            {
+              title: "Rejets",
+              url: "/processing/missing-eneo",
+              icon: FileX,
             },
           ],
         },
@@ -211,50 +197,35 @@ export function AppSidebar() {
           icon: CheckSquare,
           permission: "view:validation",
         },
-        {
-          title: t("nav.notifications"),
-          url: "/notifications",
-          icon: Bell,
-        },
       ],
     },
     {
       title: "Génie civil",
-      icon: BarChart3,
+      icon: Building2,
       type: "section-dropdown",
       color: "text-amber-500",
       bgColor: "bg-amber-500/10",
       borderColor: "border-l-amber-500",
       items: [
         {
-          title: t("nav.processing"),
+          title: "Traitement",
           icon: Database,
           permission: "view:processing",
           items: [
             {
-              title: t("nav.duplicates"),
+              title: "Vérifications",
               url: "/processing/duplicates",
-              icon: Copy,
+              icon: CheckSquare,
             },
             {
-              title: t("nav.differences"),
-              url: "/processing/differences",
-              icon: GitCompare,
-            },
-            {
-              title: t("nav.newKobo"),
-              url: "/processing/new-kobo",
-              icon: FilePlus,
-            },
-            {
-              title: t("nav.missingEneo"),
-              url: "/processing/missing-eneo",
-              icon: FileX,
-            },
-            {
-              title: t("nav.complexCases"),
+              title: "Cas complexes",
               url: "/processing/complex",
               icon: AlertCircle,
+            },
+            {
+              title: "Rejets",
+              url: "/processing/missing-eneo",
+              icon: FileX,
             },
           ],
         },
@@ -263,11 +234,6 @@ export function AppSidebar() {
           url: "/validation",
           icon: CheckSquare,
           permission: "view:validation",
-        },
-        {
-          title: t("nav.notifications"),
-          url: "/notifications",
-          icon: Bell,
         },
       ],
     },
@@ -276,6 +242,11 @@ export function AppSidebar() {
       url: "/users",
       icon: Users,
       permission: "view:users",
+    },
+    {
+      title: t("nav.notifications"),
+      url: "/notifications",
+      icon: Bell,
     },
     {
       title: t("nav.map"),
@@ -341,7 +312,7 @@ export function AppSidebar() {
 
       <SidebarSeparator />
 
-      {/* Main Navigation - avec hauteur et défilement optimisés */}
+      {/* Main Navigation */}
       <SidebarContent className="overflow-y-auto flex-1 min-h-0">
         <SidebarGroup>
           <SidebarGroupContent>
@@ -349,14 +320,6 @@ export function AppSidebar() {
               {filteredNavItems.map((item) => {
                 // Gestion des sections dropdown (Distribution, Commercial, Génie civil)
                 if (isSectionDropdown(item)) {
-                  // Déterminer si la section doit être ouverte par défaut
-                  const shouldBeOpen = item.items.some((subItem) => {
-                    if (subItem.items) {
-                      return subItem.items.some((subSubItem) => pathname.startsWith(subSubItem.url));
-                    }
-                    return subItem.url ? pathname.startsWith(subItem.url) : false;
-                  });
-
                   return (
                     <Collapsible
                       key={item.title}
@@ -383,7 +346,7 @@ export function AppSidebar() {
                                   <Collapsible
                                     key={subItem.title}
                                     asChild
-                                    defaultOpen={subItem.items.some((sub) => pathname.startsWith(sub.url))}
+                                    defaultOpen={false}
                                     className="group/sub-collapsible"
                                   >
                                     <SidebarMenuSubItem>
@@ -450,7 +413,7 @@ export function AppSidebar() {
                   );
                 }
 
-                // Gestion des éléments simples (Dashboard, Users, Map)
+                // Gestion des éléments simples (Dashboard, Users, Notifications, Map)
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>

@@ -52,7 +52,7 @@ export default function NotificationsPage() {
     useState<Notification | null>(notifications[0] || null);
   const [searchQuery, setSearchQuery] = useState("");
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("24h");
-  const [leftWidth, setLeftWidth] = useState(45);
+  const [leftWidth, setLeftWidth] = useState(30);
 
   const periodFiltered = useMemo(() => {
     const periodMs = getTimePeriodMs(timePeriod);
@@ -214,13 +214,13 @@ export default function NotificationsPage() {
           style={{ width: `${100 - leftWidth}%`, position: "relative" }}
         >
           <div
-            onMouseDown={(e) => {
-              const startX = e.clientX;        
+            onMouseDown={() => {
+              const startX = event?.clientX || 0;
               const startWidth = leftWidth;
               const container = document.body;
 
-              const handleMove = (moveEvent: MouseEvent) => {
-                const deltaX = moveEvent.clientX - startX;
+              const handleMove = (e: MouseEvent) => {
+                const deltaX = e.clientX - startX;
                 const containerWidth = container.clientWidth;
                 const deltaPercent = (deltaX / containerWidth) * 100;
                 const newLeftWidth = startWidth + deltaPercent;
