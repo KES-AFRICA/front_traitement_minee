@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth/context";
 import { useI18n } from "@/lib/i18n/context";
 import {
@@ -30,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Badge } from "@/components/ui/badge";
 import {
   LayoutDashboard,
   Database,
@@ -99,12 +101,43 @@ const roleLabels: Record<string, string> = {
   processing_agent: "Agent de traitement",
 };
 
+// Fonction pour récupérer le nombre de notifications non lues
+// À adapter selon votre source de données réelle
+function useUnreadNotificationsCount() {
+  const [count, setCount] = useState(0);
+  
+  useEffect(() => {
+    // Simuler la récupération du nombre de notifications non lues
+    // À remplacer par un appel API réel
+    const fetchUnreadCount = async () => {
+      try {
+        // Simulation d'un appel API
+        // Dans la réalité, vous feriez : const response = await notificationService.getUnreadCount();
+        const mockUnreadCount = 3; // À remplacer par les données réelles
+        setCount(mockUnreadCount);
+      } catch (error) {
+        console.error("Erreur lors de la récupération des notifications:", error);
+      }
+    };
+    
+    fetchUnreadCount();
+    
+    // Optionnel: écouter les mises à jour en temps réel (WebSocket, polling, etc.)
+    const interval = setInterval(fetchUnreadCount, 30000); // Rafraîchir toutes les 30 secondes
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return count;
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
   const { t } = useI18n();
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
+  const unreadNotificationsCount = useUnreadNotificationsCount();
 
   const mainNavItems: NavItem[] = [
     {
@@ -247,6 +280,7 @@ export function AppSidebar() {
       title: t("nav.notifications"),
       url: "/notifications",
       icon: Bell,
+      // Pas de permission spécifique pour les notifications
     },
     {
       title: t("nav.map"),
@@ -414,12 +448,23 @@ export function AppSidebar() {
                 }
 
                 // Gestion des éléments simples (Dashboard, Users, Notifications, Map)
+                // Pour l'élément Notifications, on ajoute un badge avec le nombre de notifications non lues
+                const isNotifications = item.title === t("nav.notifications");
+                
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
-                      <Link href={item.url}>
+                      <Link href={item.url} className="relative">
                         <item.icon className="w-4 h-4 shrink-0" />
                         <span className="truncate">{item.title}</span>
+                        {isNotifications && unreadNotificationsCount > 0 && (
+                          <Badge 
+                            variant="destructive" 
+                            className="absolute top-2 right-2 h-5 min-w-5 px-1 flex items-center justify-center rounded-full text-[10px] font-bold"
+                          >
+                            {unreadNotificationsCount > 99 ? "99+" : unreadNotificationsCount}
+                          </Badge>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
