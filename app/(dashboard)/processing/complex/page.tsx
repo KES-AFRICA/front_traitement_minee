@@ -255,7 +255,7 @@ function ComplexCasesTable({
               <th className="text-left p-3 font-medium">Localisation</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
-            </tr>
+             </tr>
           </thead>
           <tbody>
             {filteredCases.map((case_) => (
@@ -267,23 +267,23 @@ function ComplexCasesTable({
                     onChange={() => handleSelect(case_.id)}
                     className="rounded border-gray-300"
                   />
-                </td>
+                 </td>
                 <td className="p-3">
                   <div className="font-mono text-sm">{case_.code}</div>
                   <div className="font-medium text-sm mt-1">{case_.name}</div>
-                </td>
+                 </td>
                 <td className="p-3">
                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
                     {case_.type}
                   </span>
-                </td>
+                 </td>
                 <td className="p-3 max-w-md">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
                     <p className="text-sm text-muted-foreground">{case_.reason}</p>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">{case_.description}</p>
-                </td>
+                 </td>
                 <td className="p-3">
                   {case_.location ? (
                     <div className="flex items-center gap-1 text-sm">
@@ -293,12 +293,12 @@ function ComplexCasesTable({
                   ) : (
                     <span className="text-muted-foreground text-sm">—</span>
                   )}
-                </td>
+                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(case_.status)}`}>
                     {getStatusLabel(case_.status)}
                   </span>
-                </td>
+                 </td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
@@ -325,7 +325,7 @@ function ComplexCasesTable({
                       </button>
                     )}
                   </div>
-                </td>
+                 </td>
               </tr>
             ))}
           </tbody>
@@ -407,35 +407,35 @@ function ComplexCaseDetailModal({
           </button>
         </div>
 
-                  {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t">
-            {case_.status === "pending" && (
+        {/* Actions */}
+        <div className="flex gap-3 pt-4 border-t">
+          {case_.status === "pending" && (
+            <button
+              onClick={() => onAnalyze(case_)}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+            >
+              <AlertCircle className="h-4 w-4" />
+              Démarrer l'analyse
+            </button>
+          )}
+          {case_.status === "analyzing" && (
+            <>
               <button
-                onClick={() => onAnalyze(case_)}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+                onClick={() => onResolve(case_)}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
               >
                 <AlertCircle className="h-4 w-4" />
-                Démarrer l'analyse
+                Marquer comme résolu
               </button>
-            )}
-            {case_.status === "analyzing" && (
-              <>
-                <button
-                  onClick={() => onResolve(case_)}
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
-                >
-                  <AlertCircle className="h-4 w-4" />
-                  Marquer comme résolu
-                </button>
-                <button
-                  onClick={() => onIgnore(case_)}
-                  className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"
-                >
-                  Ignorer
-                </button>
-              </>
-            )}
-          </div>
+              <button
+                onClick={() => onIgnore(case_)}
+                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"
+              >
+                Ignorer
+              </button>
+            </>
+          )}
+        </div>
 
         <div className="space-y-4">
           {/* Informations générales */}
@@ -520,8 +520,6 @@ function ComplexCaseDetailModal({
               </div>
             </div>
           </div>
-
-
         </div>
       </div>
     </div>
@@ -549,10 +547,8 @@ export default function ComplexCasesPage() {
   const complexCases = useMemo(() => {
     if (!selectedDeparture) return [];
     
-    // Récupérer les anomalies de type "complex" pour ce départ
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "complex");
     
-    // Convertir chaque anomalie en ComplexCase
     const cases: ComplexCase[] = [];
     for (const anomaly of anomalies) {
       const converted = convertAnomalyToComplex(anomaly);
@@ -597,6 +593,84 @@ export default function ComplexCasesPage() {
       completionRate: 0,
     };
   }, []);
+
+  // Filtrer les régions pour n'afficher que celles qui ont des cas complexes
+  const filteredRegions = useMemo(() => {
+    if (!searchQuery) {
+      return eneoRegions.filter(region => {
+        let hasComplex = false;
+        region.zones.forEach(zone => {
+          zone.departures.forEach(departure => {
+            if (getAnomaliesByFeeder(departure.feederId, "complex").length > 0) {
+              hasComplex = true;
+            }
+          });
+        });
+        return hasComplex;
+      });
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return eneoRegions.filter(region => {
+      let hasComplex = false;
+      region.zones.forEach(zone => {
+        zone.departures.forEach(departure => {
+          if (getAnomaliesByFeeder(departure.feederId, "complex").length > 0) {
+            hasComplex = true;
+          }
+        });
+      });
+      return hasComplex && (
+        region.code.toLowerCase().includes(query) ||
+        region.name.toLowerCase().includes(query) ||
+        region.fullName.toLowerCase().includes(query)
+      );
+    });
+  }, [searchQuery]);
+
+  // Filtrer les zones pour n'afficher que celles qui ont des cas complexes
+  const filteredZones = useMemo(() => {
+    if (!selectedRegion) return [];
+    
+    let zones = selectedRegion.zones.filter(zone => {
+      let hasComplex = false;
+      zone.departures.forEach(departure => {
+        if (getAnomaliesByFeeder(departure.feederId, "complex").length > 0) {
+          hasComplex = true;
+        }
+      });
+      return hasComplex;
+    });
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      zones = zones.filter(zone => 
+        zone.code.toLowerCase().includes(query) || 
+        zone.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return zones;
+  }, [selectedRegion, searchQuery]);
+
+  // Filtrer les départs pour n'afficher que ceux qui ont des cas complexes
+  const filteredDepartures = useMemo(() => {
+    if (!selectedZone) return [];
+    
+    let departures = selectedZone.departures.filter(departure => 
+      getAnomaliesByFeeder(departure.feederId, "complex").length > 0
+    );
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      departures = departures.filter(departure => 
+        departure.code.toLowerCase().includes(query) || 
+        departure.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return departures;
+  }, [selectedZone, searchQuery]);
 
   // Build breadcrumb
   const breadcrumbItems: BreadcrumbItem[] = useMemo(() => {
@@ -674,36 +748,6 @@ export default function ComplexCasesPage() {
     toast.success(`${caseIds.length} cas(s) ${action === "analyze" ? "en cours d'analyse" : "résolus"}`);
   };
 
-  // Filter regions by search
-  const filteredRegions = useMemo(() => {
-    if (!searchQuery) return eneoRegions;
-    const query = searchQuery.toLowerCase();
-    return eneoRegions.filter(
-      (r) =>
-        r.code.toLowerCase().includes(query) ||
-        r.name.toLowerCase().includes(query) ||
-        r.fullName.toLowerCase().includes(query)
-    );
-  }, [searchQuery]);
-
-  const filteredZones = useMemo(() => {
-    if (!selectedRegion) return [];
-    if (!searchQuery) return selectedRegion.zones;
-    const query = searchQuery.toLowerCase();
-    return selectedRegion.zones.filter(
-      (z) => z.code.toLowerCase().includes(query) || z.name.toLowerCase().includes(query)
-    );
-  }, [selectedRegion, searchQuery]);
-
-  const filteredDepartures = useMemo(() => {
-    if (!selectedZone) return [];
-    if (!searchQuery) return selectedZone.departures;
-    const query = searchQuery.toLowerCase();
-    return selectedZone.departures.filter(
-      (d) => d.code.toLowerCase().includes(query) || d.name.toLowerCase().includes(query)
-    );
-  }, [selectedZone, searchQuery]);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -749,39 +793,42 @@ export default function ComplexCasesPage() {
       {/* Content based on view level */}
       {viewLevel === "regions" && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRegions.map((region) => {
-              let regionComplexCount = 0;
-              region.zones.forEach(zone => {
-                zone.departures.forEach(departure => {
-                  regionComplexCount += getAnomaliesByFeeder(departure.feederId, "complex").length;
-                });
-              });
-              
-              const stats = {
-                total: regionComplexCount,
-                pending: regionComplexCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <RegionCard
-                  key={region.id}
-                  code={region.code}
-                  name={region.name}
-                  fullName={region.fullName}
-                  stats={stats}
-                  zonesCount={region.zones.length}
-                  onClick={() => handleRegionClick(region)}
-                />
-              );
-            })}
-          </div>
-          {filteredRegions.length === 0 && (
+          <h2 className="text-xl font-semibold mb-4">
+            Régions avec des cas complexes ({filteredRegions.length})
+          </h2>
+          {filteredRegions.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucune region trouvée pour &quot;{searchQuery}&quot;
+              Aucune région ne contient de cas complexes
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredRegions.map((region) => {
+                let regionComplexCount = 0;
+                region.zones.forEach(zone => {
+                  zone.departures.forEach(departure => {
+                    regionComplexCount += getAnomaliesByFeeder(departure.feederId, "complex").length;
+                  });
+                });
+                
+                const stats = {
+                  total: regionComplexCount,
+                  pending: regionComplexCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <RegionCard
+                    key={region.id}
+                    code={region.code}
+                    name={region.name}
+                    fullName={region.fullName}
+                    stats={stats}
+                    zonesCount={region.zones.length}
+                    onClick={() => handleRegionClick(region)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -790,37 +837,38 @@ export default function ComplexCasesPage() {
       {viewLevel === "zones" && selectedRegion && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Zones de {selectedRegion.fullName} ({filteredZones.length})
+            Zones de {selectedRegion.fullName} avec des cas complexes ({filteredZones.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredZones.map((zone) => {
-              let zoneComplexCount = 0;
-              zone.departures.forEach(departure => {
-                zoneComplexCount += getAnomaliesByFeeder(departure.feederId, "complex").length;
-              });
-              
-              const stats = {
-                total: zoneComplexCount,
-                pending: zoneComplexCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <ZoneCard
-                  key={zone.id}
-                  code={zone.code}
-                  name={zone.name}
-                  stats={stats}
-                  departuresCount={zone.departures.length}
-                  onClick={() => handleZoneClick(zone)}
-                />
-              );
-            })}
-          </div>
-          {filteredZones.length === 0 && (
+          {filteredZones.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucune zone trouvée pour &quot;{searchQuery}&quot;
+              Aucune zone ne contient de cas complexes dans cette région
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredZones.map((zone) => {
+                let zoneComplexCount = 0;
+                zone.departures.forEach(departure => {
+                  zoneComplexCount += getAnomaliesByFeeder(departure.feederId, "complex").length;
+                });
+                
+                const stats = {
+                  total: zoneComplexCount,
+                  pending: zoneComplexCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <ZoneCard
+                    key={zone.id}
+                    code={zone.code}
+                    name={zone.name}
+                    stats={stats}
+                    departuresCount={zone.departures.length}
+                    onClick={() => handleZoneClick(zone)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -829,27 +877,28 @@ export default function ComplexCasesPage() {
       {viewLevel === "departures" && selectedZone && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Départs de {selectedZone.name} ({filteredDepartures.length})
+            Départs de {selectedZone.name} avec des cas complexes ({filteredDepartures.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredDepartures.map((departure) => {
-              const complexCount = getAnomaliesByFeeder(departure.feederId, "complex").length;
-              return (
-                <DepartureCard
-                  key={departure.id}
-                  code={departure.code}
-                  name={departure.name}
-                  equipmentCount={complexCount}
-                  completedCount={0}
-                  pendingCount={complexCount}
-                  onClick={() => handleDepartureClick(departure)}
-                />
-              );
-            })}
-          </div>
-          {filteredDepartures.length === 0 && (
+          {filteredDepartures.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucun départ trouvé pour &quot;{searchQuery}&quot;
+              Aucun départ ne contient de cas complexes dans cette zone
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDepartures.map((departure) => {
+                const complexCount = getAnomaliesByFeeder(departure.feederId, "complex").length;
+                return (
+                  <DepartureCard
+                    key={departure.id}
+                    code={departure.code}
+                    name={departure.name}
+                    equipmentCount={complexCount}
+                    completedCount={0}
+                    pendingCount={complexCount}
+                    onClick={() => handleDepartureClick(departure)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>

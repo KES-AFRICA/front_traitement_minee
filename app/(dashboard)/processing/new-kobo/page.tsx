@@ -244,7 +244,7 @@ function NewDataTable({
               <th className="text-left p-3 font-medium">Détecté le</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
-            </tr>
+             </tr>
           </thead>
           <tbody>
             {filteredRecords.map((record) => (
@@ -256,7 +256,7 @@ function NewDataTable({
                     onChange={() => handleSelect(record.id)}
                     className="rounded border-gray-300"
                   />
-                </td>
+                 </td>
                 <td className="p-3">
                   <div className="font-mono text-sm">{record.code}</div>
                   <div className="font-medium text-sm mt-1">{record.title}</div>
@@ -265,7 +265,7 @@ function NewDataTable({
                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                     {record.type}
                   </span>
-                </td>
+                 </td>
                 <td className="p-3 max-w-xs">
                   <p className="text-sm text-muted-foreground truncate">{record.description}</p>
                  </td>
@@ -274,7 +274,7 @@ function NewDataTable({
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(record.validationStatus)}`}>
                     {getStatusLabel(record.validationStatus)}
                   </span>
-                </td>
+                 </td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
@@ -284,9 +284,8 @@ function NewDataTable({
                       <Eye className="h-3 w-3" />
                       Voir
                     </button>
-                   
                   </div>
-                </td>
+                 </td>
               </tr>
             ))}
           </tbody>
@@ -363,23 +362,23 @@ function NewDataDetailModal({
           </button>
         </div>
 
-         {/* Actions */}
-          <div className="flex gap-3 py-2 border-t">
-            <button
-              onClick={() => onKeep(record)}
-              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
-            >
-              <Save className="h-4 w-4" />
-              Intégrer à la base de référence
-            </button>
-            <button
-              onClick={() => onDelete(record)}
-              className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Supprimer de la collecte
-            </button>
-          </div>
+        {/* Actions */}
+        <div className="flex gap-3 py-2 border-t">
+          <button
+            onClick={() => onKeep(record)}
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
+          >
+            <Save className="h-4 w-4" />
+            Intégrer à la base de référence
+          </button>
+          <button
+            onClick={() => onDelete(record)}
+            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
+          >
+            <Trash2 className="h-4 w-4" />
+            Supprimer de la collecte
+          </button>
+        </div>
 
         <div className="space-y-2">
           {/* Informations générales */}
@@ -437,8 +436,6 @@ function NewDataDetailModal({
               </div>
             </div>
           </div>
-
-         
         </div>
       </div>
     </div>
@@ -466,10 +463,8 @@ export default function NewDataPage() {
   const newDataRecords = useMemo(() => {
     if (!selectedDeparture) return [];
     
-    // Récupérer les anomalies de type "new" pour ce départ
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "new");
     
-    // Convertir chaque anomalie en NewDataRecord
     const records: NewDataRecord[] = [];
     for (const anomaly of anomalies) {
       const converted = convertAnomalyToNewData(anomaly);
@@ -515,7 +510,84 @@ export default function NewDataPage() {
     };
   }, []);
 
-  // Build breadcrumb
+  // Filtrer les régions pour n'afficher que celles qui ont des nouvelles données
+  const filteredRegions = useMemo(() => {
+    if (!searchQuery) {
+      return eneoRegions.filter(region => {
+        let hasNewData = false;
+        region.zones.forEach(zone => {
+          zone.departures.forEach(departure => {
+            if (getAnomaliesByFeeder(departure.feederId, "new").length > 0) {
+              hasNewData = true;
+            }
+          });
+        });
+        return hasNewData;
+      });
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return eneoRegions.filter(region => {
+      let hasNewData = false;
+      region.zones.forEach(zone => {
+        zone.departures.forEach(departure => {
+          if (getAnomaliesByFeeder(departure.feederId, "new").length > 0) {
+            hasNewData = true;
+          }
+        });
+      });
+      return hasNewData && (
+        region.code.toLowerCase().includes(query) ||
+        region.name.toLowerCase().includes(query) ||
+        region.fullName.toLowerCase().includes(query)
+      );
+    });
+  }, [searchQuery]);
+
+  // Filtrer les zones pour n'afficher que celles qui ont des nouvelles données
+  const filteredZones = useMemo(() => {
+    if (!selectedRegion) return [];
+    
+    let zones = selectedRegion.zones.filter(zone => {
+      let hasNewData = false;
+      zone.departures.forEach(departure => {
+        if (getAnomaliesByFeeder(departure.feederId, "new").length > 0) {
+          hasNewData = true;
+        }
+      });
+      return hasNewData;
+    });
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      zones = zones.filter(zone => 
+        zone.code.toLowerCase().includes(query) || 
+        zone.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return zones;
+  }, [selectedRegion, searchQuery]);
+
+  // Filtrer les départs pour n'afficher que ceux qui ont des nouvelles données
+  const filteredDepartures = useMemo(() => {
+    if (!selectedZone) return [];
+    
+    let departures = selectedZone.departures.filter(departure => 
+      getAnomaliesByFeeder(departure.feederId, "new").length > 0
+    );
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      departures = departures.filter(departure => 
+        departure.code.toLowerCase().includes(query) || 
+        departure.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return departures;
+  }, [selectedZone, searchQuery]);
+
   const breadcrumbItems: BreadcrumbItem[] = useMemo(() => {
     const items: BreadcrumbItem[] = [
       { id: "home", label: "Nouvelles Données", type: "home" },
@@ -534,7 +606,6 @@ export default function NewDataPage() {
     return items;
   }, [selectedRegion, selectedZone, selectedDeparture]);
 
-  // Handle navigation
   const handleBreadcrumbNavigate = (item: BreadcrumbItem) => {
     if (item.type === "home") {
       setViewLevel("regions");
@@ -566,7 +637,6 @@ export default function NewDataPage() {
     setViewLevel("newData");
   };
 
-  // New data actions
   const handleViewRecord = (record: NewDataRecord) => {
     setSelectedRecord(record);
     setIsDetailModalOpen(true);
@@ -591,36 +661,6 @@ export default function NewDataPage() {
     const actionLabel = action === "keep" ? "intégrés" : "supprimés";
     toast.success(`${recordIds.length} équipement(s) ${actionLabel}`);
   };
-
-  // Filter regions by search
-  const filteredRegions = useMemo(() => {
-    if (!searchQuery) return eneoRegions;
-    const query = searchQuery.toLowerCase();
-    return eneoRegions.filter(
-      (r) =>
-        r.code.toLowerCase().includes(query) ||
-        r.name.toLowerCase().includes(query) ||
-        r.fullName.toLowerCase().includes(query)
-    );
-  }, [searchQuery]);
-
-  const filteredZones = useMemo(() => {
-    if (!selectedRegion) return [];
-    if (!searchQuery) return selectedRegion.zones;
-    const query = searchQuery.toLowerCase();
-    return selectedRegion.zones.filter(
-      (z) => z.code.toLowerCase().includes(query) || z.name.toLowerCase().includes(query)
-    );
-  }, [selectedRegion, searchQuery]);
-
-  const filteredDepartures = useMemo(() => {
-    if (!selectedZone) return [];
-    if (!searchQuery) return selectedZone.departures;
-    const query = searchQuery.toLowerCase();
-    return selectedZone.departures.filter(
-      (d) => d.code.toLowerCase().includes(query) || d.name.toLowerCase().includes(query)
-    );
-  }, [selectedZone, searchQuery]);
 
   return (
     <div className="space-y-6">
@@ -667,39 +707,42 @@ export default function NewDataPage() {
       {/* Content based on view level */}
       {viewLevel === "regions" && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRegions.map((region) => {
-              let regionNewCount = 0;
-              region.zones.forEach(zone => {
-                zone.departures.forEach(departure => {
-                  regionNewCount += getAnomaliesByFeeder(departure.feederId, "new").length;
-                });
-              });
-              
-              const stats = {
-                total: regionNewCount,
-                pending: regionNewCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <RegionCard
-                  key={region.id}
-                  code={region.code}
-                  name={region.name}
-                  fullName={region.fullName}
-                  stats={stats}
-                  zonesCount={region.zones.length}
-                  onClick={() => handleRegionClick(region)}
-                />
-              );
-            })}
-          </div>
-          {filteredRegions.length === 0 && (
+          <h2 className="text-xl font-semibold mb-4">
+            Régions avec des nouvelles données ({filteredRegions.length})
+          </h2>
+          {filteredRegions.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucune region trouvée pour &quot;{searchQuery}&quot;
+              Aucune région ne contient de nouvelles données
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredRegions.map((region) => {
+                let regionNewCount = 0;
+                region.zones.forEach(zone => {
+                  zone.departures.forEach(departure => {
+                    regionNewCount += getAnomaliesByFeeder(departure.feederId, "new").length;
+                  });
+                });
+                
+                const stats = {
+                  total: regionNewCount,
+                  pending: regionNewCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <RegionCard
+                    key={region.id}
+                    code={region.code}
+                    name={region.name}
+                    fullName={region.fullName}
+                    stats={stats}
+                    zonesCount={region.zones.length}
+                    onClick={() => handleRegionClick(region)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -708,37 +751,38 @@ export default function NewDataPage() {
       {viewLevel === "zones" && selectedRegion && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Zones de {selectedRegion.fullName} ({filteredZones.length})
+            Zones de {selectedRegion.fullName} avec des nouvelles données ({filteredZones.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredZones.map((zone) => {
-              let zoneNewCount = 0;
-              zone.departures.forEach(departure => {
-                zoneNewCount += getAnomaliesByFeeder(departure.feederId, "new").length;
-              });
-              
-              const stats = {
-                total: zoneNewCount,
-                pending: zoneNewCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <ZoneCard
-                  key={zone.id}
-                  code={zone.code}
-                  name={zone.name}
-                  stats={stats}
-                  departuresCount={zone.departures.length}
-                  onClick={() => handleZoneClick(zone)}
-                />
-              );
-            })}
-          </div>
-          {filteredZones.length === 0 && (
+          {filteredZones.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucune zone trouvée pour &quot;{searchQuery}&quot;
+              Aucune zone ne contient de nouvelles données dans cette région
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredZones.map((zone) => {
+                let zoneNewCount = 0;
+                zone.departures.forEach(departure => {
+                  zoneNewCount += getAnomaliesByFeeder(departure.feederId, "new").length;
+                });
+                
+                const stats = {
+                  total: zoneNewCount,
+                  pending: zoneNewCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <ZoneCard
+                    key={zone.id}
+                    code={zone.code}
+                    name={zone.name}
+                    stats={stats}
+                    departuresCount={zone.departures.length}
+                    onClick={() => handleZoneClick(zone)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -747,27 +791,28 @@ export default function NewDataPage() {
       {viewLevel === "departures" && selectedZone && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Départs de {selectedZone.name} ({filteredDepartures.length})
+            Départs de {selectedZone.name} avec des nouvelles données ({filteredDepartures.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredDepartures.map((departure) => {
-              const newCount = getAnomaliesByFeeder(departure.feederId, "new").length;
-              return (
-                <DepartureCard
-                  key={departure.id}
-                  code={departure.code}
-                  name={departure.name}
-                  equipmentCount={newCount}
-                  completedCount={0}
-                  pendingCount={newCount}
-                  onClick={() => handleDepartureClick(departure)}
-                />
-              );
-            })}
-          </div>
-          {filteredDepartures.length === 0 && (
+          {filteredDepartures.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucun départ trouvé pour &quot;{searchQuery}&quot;
+              Aucun départ ne contient de nouvelles données dans cette zone
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDepartures.map((departure) => {
+                const newCount = getAnomaliesByFeeder(departure.feederId, "new").length;
+                return (
+                  <DepartureCard
+                    key={departure.id}
+                    code={departure.code}
+                    name={departure.name}
+                    equipmentCount={newCount}
+                    completedCount={0}
+                    pendingCount={newCount}
+                    onClick={() => handleDepartureClick(departure)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>

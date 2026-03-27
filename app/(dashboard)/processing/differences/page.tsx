@@ -19,10 +19,9 @@ import {
   EneoRegion, 
   EneoZone, 
   EneoDeparture,
-  AnomalyCase
-  
+  AnomalyCase,
+  DivergentField
 } from "@/lib/api/eneo-data";
-import { DivergentField } from "@/lib/types/eneo-assets";
 
 // Types pour les divergences
 type DivergenceSeverity = "critical" | "high" | "medium" | "low";
@@ -51,7 +50,6 @@ type ViewLevel = "regions" | "zones" | "departures" | "divergences";
 
 // Calculer la sévérité en fonction du nombre et du type de champs divergents
 function calculateSeverity(divergentFields: DivergentField[], table: string): DivergenceSeverity {
-  // Champs critiques qui méritent une attention particulière
   const criticalFields = ["voltage", "apparent_power", "type", "phase", "active"];
   
   const criticalCount = divergentFields.filter(f => 
@@ -70,7 +68,6 @@ function calculateSeverity(divergentFields: DivergentField[], table: string): Di
 function convertAnomalyToDivergence(anomaly: AnomalyCase): Divergence | null {
   if (anomaly.type !== "divergence" || !anomaly.divergentFields) return null;
   
-  // Générer une description lisible des divergences
   const fieldDescriptions = anomaly.divergentFields.map(f => {
     const oldVal = formatValueForDisplay(f.layer1Value);
     const newVal = formatValueForDisplay(f.layer2Value);
@@ -79,11 +76,8 @@ function convertAnomalyToDivergence(anomaly: AnomalyCase): Divergence | null {
   
   const description = `${fieldDescriptions.length} différence(s) détectée(s) : ${fieldDescriptions.join(", ")}`;
   
-  // Obtenir un code lisible pour l'affichage
   const recordName = anomaly.layer1Record?.name || anomaly.layer2Record?.name || anomaly.mrid.toString();
   const code = `${anomaly.table.toUpperCase()}-${recordName}`;
-  
-  // Calculer la sévérité
   const severity = calculateSeverity(anomaly.divergentFields, anomaly.table);
   
   return {
@@ -116,31 +110,22 @@ function formatValueForDisplay(value: unknown): string {
 // Obtenir le libellé d'un champ
 function getFieldLabel(field: string): string {
   const labels: Record<string, string> = {
-    // Champs communs
     name: "Nom",
     code: "Code",
     active: "Actif",
     type: "Type",
     voltage: "Tension (kV)",
     phase: "Phase",
-    
-    // Substation
     highest_voltage_level: "Niveau tension max",
     exploitation: "Exploitation",
     localisation: "Localisation",
     regime: "Régime",
     zone_type: "Type de zone",
-    
-    // PowerTransformer
     apparent_power: "Puissance (kVA)",
     w1_voltage: "Tension primaire",
     w2_voltage: "Tension secondaire",
-    
-    // Switch
     nature: "Nature",
     normal_open: "Normalement ouvert",
-    
-    // Pole
     height: "Hauteur (m)",
     installation_date: "Date installation",
     lastvisit_date: "Dernière visite",
@@ -180,20 +165,16 @@ function ComparisonView({
   
   if (!divergence.layer1Record || !divergence.layer2Record) return null;
   
-  // Tous les champs à comparer (hors m_rid)
   const allFields = new Set([
     ...Object.keys(divergence.layer1Record).filter(k => k !== "m_rid"),
     ...Object.keys(divergence.layer2Record).filter(k => k !== "m_rid")
   ]);
   
-  // Champs divergents pour mise en évidence
   const divergentFieldSet = new Set(divergence.divergentFields.map(f => f.field));
-  
   const fieldsList = Array.from(allFields).sort();
   
   return (
     <div className="space-y-6">
-      {/* En-tête */}
       <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
@@ -260,15 +241,13 @@ function ComparisonView({
         )}
       </div>
 
-      {/* Informations supplémentaires */}
       <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
-                <div className="font-bold text-black uppercase">
+        <div className="font-bold text-black uppercase">
           <span>Type équipement:</span> {divergence.type}
         </div>
         <div>
           <span className="font-medium">ID technique:</span> {divergence.mrid}
         </div>
-
         {divergence.departureCode && (
           <div>
             <span className="font-medium">Départ:</span> {divergence.departureCode}
@@ -276,7 +255,6 @@ function ComparisonView({
         )}
       </div>
       
-      {/* Table de comparaison */}
       <div className="border rounded-lg overflow-hidden">
         <div className="grid grid-cols-3 bg-muted/50 border-b">
           <div className="p-3 font-medium">Champ</div>
@@ -311,8 +289,6 @@ function ComparisonView({
           );
         })}
       </div>
-      
-      
     </div>
   );
 }
@@ -456,13 +432,13 @@ function DivergenceTable({
                     onChange={() => handleSelect(divergence.id)}
                     className="rounded border-gray-300"
                   />
-                </td>
+                 </td>
                 <td className="p-3">
                   <div className="font-mono text-sm">{divergence.code}</div>
                   <div className="text-xs text-muted-foreground mt-1">
                     ID: {divergence.mrid}
                   </div>
-                </td>
+                 </td>
                 <td className="p-3">{divergence.type}</td>
                 <td className="p-3">
                   <div className="space-y-1">
@@ -480,17 +456,17 @@ function DivergenceTable({
                       </div>
                     )}
                   </div>
-                </td>
+                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getSeverityColor(divergence.severity)}`}>
                     {getSeverityLabel(divergence.severity)}
                   </span>
-                </td>
+                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(divergence.status)}`}>
                     {getStatusLabel(divergence.status)}
                   </span>
-                </td>
+                 </td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
@@ -500,13 +476,12 @@ function DivergenceTable({
                       <Eye className="h-3 w-3" />
                       Comparer
                     </button>
-                    
                   </div>
-                </td>
-              </tr>
+                 </td>
+               </tr>
             ))}
           </tbody>
-        </table>
+         </table>
         {filteredDivergences.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
             Aucune divergence trouvée pour ce départ
@@ -562,17 +537,14 @@ function DivergenceDetailModal({
 export default function DivergencesPage() {
   const { t } = useI18n();
   
-  // Navigation state
   const [viewLevel, setViewLevel] = useState<ViewLevel>("regions");
   const [selectedRegion, setSelectedRegion] = useState<EneoRegion | null>(null);
   const [selectedZone, setSelectedZone] = useState<EneoZone | null>(null);
   const [selectedDeparture, setSelectedDeparture] = useState<EneoDeparture | null>(null);
   
-  // Filter state
   const [period, setPeriod] = useState<PeriodType>("month");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal state
   const [selectedDivergence, setSelectedDivergence] = useState<Divergence | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
@@ -580,10 +552,8 @@ export default function DivergencesPage() {
   const divergences = useMemo(() => {
     if (!selectedDeparture) return [];
     
-    // Récupérer les anomalies de type "divergence" pour ce départ
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "divergence");
     
-    // Convertir chaque anomalie en Divergence
     const divergenceRecords: Divergence[] = [];
     for (const anomaly of anomalies) {
       const converted = convertAnomalyToDivergence(anomaly);
@@ -595,7 +565,6 @@ export default function DivergencesPage() {
     return divergenceRecords;
   }, [selectedDeparture]);
 
-  // Filter divergences
   const filteredDivergences = useMemo(() => {
     if (!searchQuery) return divergences;
     const query = searchQuery.toLowerCase();
@@ -628,7 +597,84 @@ export default function DivergencesPage() {
     };
   }, []);
 
-  // Build breadcrumb
+  // Filtrer les régions pour n'afficher que celles qui ont des divergences
+  const filteredRegions = useMemo(() => {
+    if (!searchQuery) {
+      return eneoRegions.filter(region => {
+        let hasDivergences = false;
+        region.zones.forEach(zone => {
+          zone.departures.forEach(departure => {
+            if (getAnomaliesByFeeder(departure.feederId, "divergence").length > 0) {
+              hasDivergences = true;
+            }
+          });
+        });
+        return hasDivergences;
+      });
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return eneoRegions.filter(region => {
+      let hasDivergences = false;
+      region.zones.forEach(zone => {
+        zone.departures.forEach(departure => {
+          if (getAnomaliesByFeeder(departure.feederId, "divergence").length > 0) {
+            hasDivergences = true;
+          }
+        });
+      });
+      return hasDivergences && (
+        region.code.toLowerCase().includes(query) ||
+        region.name.toLowerCase().includes(query) ||
+        region.fullName.toLowerCase().includes(query)
+      );
+    });
+  }, [searchQuery]);
+
+  // Filtrer les zones pour n'afficher que celles qui ont des divergences
+  const filteredZones = useMemo(() => {
+    if (!selectedRegion) return [];
+    
+    let zones = selectedRegion.zones.filter(zone => {
+      let hasDivergences = false;
+      zone.departures.forEach(departure => {
+        if (getAnomaliesByFeeder(departure.feederId, "divergence").length > 0) {
+          hasDivergences = true;
+        }
+      });
+      return hasDivergences;
+    });
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      zones = zones.filter(zone => 
+        zone.code.toLowerCase().includes(query) || 
+        zone.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return zones;
+  }, [selectedRegion, searchQuery]);
+
+  // Filtrer les départs pour n'afficher que ceux qui ont des divergences
+  const filteredDepartures = useMemo(() => {
+    if (!selectedZone) return [];
+    
+    let departures = selectedZone.departures.filter(departure => 
+      getAnomaliesByFeeder(departure.feederId, "divergence").length > 0
+    );
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      departures = departures.filter(departure => 
+        departure.code.toLowerCase().includes(query) || 
+        departure.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return departures;
+  }, [selectedZone, searchQuery]);
+
   const breadcrumbItems: BreadcrumbItem[] = useMemo(() => {
     const items: BreadcrumbItem[] = [
       { id: "home", label: "Divergences", type: "home" },
@@ -647,7 +693,6 @@ export default function DivergencesPage() {
     return items;
   }, [selectedRegion, selectedZone, selectedDeparture]);
 
-  // Handle navigation
   const handleBreadcrumbNavigate = (item: BreadcrumbItem) => {
     if (item.type === "home") {
       setViewLevel("regions");
@@ -679,7 +724,6 @@ export default function DivergencesPage() {
     setViewLevel("divergences");
   };
 
-  // Divergence actions
   const handleViewDivergence = (divergence: Divergence) => {
     setSelectedDivergence(divergence);
     setIsDetailModalOpen(true);
@@ -705,39 +749,8 @@ export default function DivergencesPage() {
     toast.success(`${divergenceIds.length} divergence(s) ${actionLabel}`);
   };
 
-  // Filter regions by search
-  const filteredRegions = useMemo(() => {
-    if (!searchQuery) return eneoRegions;
-    const query = searchQuery.toLowerCase();
-    return eneoRegions.filter(
-      (r) =>
-        r.code.toLowerCase().includes(query) ||
-        r.name.toLowerCase().includes(query) ||
-        r.fullName.toLowerCase().includes(query)
-    );
-  }, [searchQuery]);
-
-  const filteredZones = useMemo(() => {
-    if (!selectedRegion) return [];
-    if (!searchQuery) return selectedRegion.zones;
-    const query = searchQuery.toLowerCase();
-    return selectedRegion.zones.filter(
-      (z) => z.code.toLowerCase().includes(query) || z.name.toLowerCase().includes(query)
-    );
-  }, [selectedRegion, searchQuery]);
-
-  const filteredDepartures = useMemo(() => {
-    if (!selectedZone) return [];
-    if (!searchQuery) return selectedZone.departures;
-    const query = searchQuery.toLowerCase();
-    return selectedZone.departures.filter(
-      (d) => d.code.toLowerCase().includes(query) || d.name.toLowerCase().includes(query)
-    );
-  }, [selectedZone, searchQuery]);
-
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
@@ -751,7 +764,6 @@ export default function DivergencesPage() {
         <PeriodFilter value={period} onChange={setPeriod} />
       </div>
 
-      {/* Global Stats */}
       <GlobalStatsCards
         total={globalStats.total}
         pendingAndInProgress={globalStats.pendingAndInProgress}
@@ -759,7 +771,6 @@ export default function DivergencesPage() {
         completionRate={globalStats.completionRate}
       />
 
-      {/* Navigation Breadcrumb + Search */}
       <Card>
         <CardContent className="py-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -777,42 +788,44 @@ export default function DivergencesPage() {
         </CardContent>
       </Card>
 
-      {/* Content based on view level */}
       {viewLevel === "regions" && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRegions.map((region) => {
-              let regionDivergenceCount = 0;
-              region.zones.forEach(zone => {
-                zone.departures.forEach(departure => {
-                  regionDivergenceCount += getAnomaliesByFeeder(departure.feederId, "divergence").length;
-                });
-              });
-              
-              const stats = {
-                total: regionDivergenceCount,
-                pending: regionDivergenceCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <RegionCard
-                  key={region.id}
-                  code={region.code}
-                  name={region.name}
-                  fullName={region.fullName}
-                  stats={stats}
-                  zonesCount={region.zones.length}
-                  onClick={() => handleRegionClick(region)}
-                />
-              );
-            })}
-          </div>
-          {filteredRegions.length === 0 && (
+          <h2 className="text-xl font-semibold mb-4">
+            Régions avec des divergences ({filteredRegions.length})
+          </h2>
+          {filteredRegions.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucune region trouvée pour &quot;{searchQuery}&quot;
+              Aucune région ne contient de divergences
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredRegions.map((region) => {
+                let regionDivergenceCount = 0;
+                region.zones.forEach(zone => {
+                  zone.departures.forEach(departure => {
+                    regionDivergenceCount += getAnomaliesByFeeder(departure.feederId, "divergence").length;
+                  });
+                });
+                
+                const stats = {
+                  total: regionDivergenceCount,
+                  pending: regionDivergenceCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <RegionCard
+                    key={region.id}
+                    code={region.code}
+                    name={region.name}
+                    fullName={region.fullName}
+                    stats={stats}
+                    zonesCount={region.zones.length}
+                    onClick={() => handleRegionClick(region)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -821,37 +834,38 @@ export default function DivergencesPage() {
       {viewLevel === "zones" && selectedRegion && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Zones de {selectedRegion.fullName} ({filteredZones.length})
+            Zones de {selectedRegion.fullName} avec des divergences ({filteredZones.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredZones.map((zone) => {
-              let zoneDivergenceCount = 0;
-              zone.departures.forEach(departure => {
-                zoneDivergenceCount += getAnomaliesByFeeder(departure.feederId, "divergence").length;
-              });
-              
-              const stats = {
-                total: zoneDivergenceCount,
-                pending: zoneDivergenceCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <ZoneCard
-                  key={zone.id}
-                  code={zone.code}
-                  name={zone.name}
-                  stats={stats}
-                  departuresCount={zone.departures.length}
-                  onClick={() => handleZoneClick(zone)}
-                />
-              );
-            })}
-          </div>
-          {filteredZones.length === 0 && (
+          {filteredZones.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucune zone trouvée pour &quot;{searchQuery}&quot;
+              Aucune zone ne contient de divergences dans cette région
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredZones.map((zone) => {
+                let zoneDivergenceCount = 0;
+                zone.departures.forEach(departure => {
+                  zoneDivergenceCount += getAnomaliesByFeeder(departure.feederId, "divergence").length;
+                });
+                
+                const stats = {
+                  total: zoneDivergenceCount,
+                  pending: zoneDivergenceCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <ZoneCard
+                    key={zone.id}
+                    code={zone.code}
+                    name={zone.name}
+                    stats={stats}
+                    departuresCount={zone.departures.length}
+                    onClick={() => handleZoneClick(zone)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -860,27 +874,28 @@ export default function DivergencesPage() {
       {viewLevel === "departures" && selectedZone && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Départs de {selectedZone.name} ({filteredDepartures.length})
+            Départs de {selectedZone.name} avec des divergences ({filteredDepartures.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredDepartures.map((departure) => {
-              const divergenceCount = getAnomaliesByFeeder(departure.feederId, "divergence").length;
-              return (
-                <DepartureCard
-                  key={departure.id}
-                  code={departure.code}
-                  name={departure.name}
-                  equipmentCount={divergenceCount}
-                  completedCount={0}
-                  pendingCount={divergenceCount}
-                  onClick={() => handleDepartureClick(departure)}
-                />
-              );
-            })}
-          </div>
-          {filteredDepartures.length === 0 && (
+          {filteredDepartures.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              Aucun départ trouvé pour &quot;{searchQuery}&quot;
+              Aucun départ ne contient de divergences dans cette zone
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDepartures.map((departure) => {
+                const divergenceCount = getAnomaliesByFeeder(departure.feederId, "divergence").length;
+                return (
+                  <DepartureCard
+                    key={departure.id}
+                    code={departure.code}
+                    name={departure.name}
+                    equipmentCount={divergenceCount}
+                    completedCount={0}
+                    pendingCount={divergenceCount}
+                    onClick={() => handleDepartureClick(departure)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
@@ -918,7 +933,6 @@ export default function DivergencesPage() {
         </div>
       )}
 
-      {/* Modal */}
       <DivergenceDetailModal
         divergence={selectedDivergence}
         isOpen={isDetailModalOpen}
