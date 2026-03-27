@@ -2,21 +2,12 @@
 // lib/api/eneo-data-real.ts
 // Adaptateur : connecte le ComparisonService aux structures attendues
 // par les pages duplicates, divergences, new-data et missing-records.
-//
-// Remplace les données mock aléatoires par les vraies anomalies détectées.
 // =============================================================================
 
 import { AnomalyCase, TableName, DivergentField } from "../types/eneo-assets";
 import { runComparison } from "./services/comparison.service";
 import { layer1DB } from "@/data/layer1";
 import { layer2DB } from "@/data/layer2";
-
-export interface ComplexCaseStats {
-total: number;
-    pending: number;
-    inProgress: number;
-    completed: number;
-}
 
 // ─── Structure de navigation DRD-O (Douala Ouest) ────────────────────────
 
@@ -25,7 +16,7 @@ export interface EneoDeparture {
   code: string;
   name: string;
   feederId: number | string;
-  equipmentCount: number;          // nombre d'équipements BD1
+  equipmentCount: number;
   anomalyCounts: {
     duplicate: number;
     divergence: number;
@@ -33,12 +24,11 @@ export interface EneoDeparture {
     missing: number;
     complex: number;
   };
-  // Nouveaux champs pour les KPIs des manquants
   collectionStats?: {
-    totalAttendu: number;           // tous les équipements Layer1
-    collectes: number;              // équipements Layer1 présents dans Layer2 (bon + divergence + duplicate)
-    manquantsRestants: number;      // ce qui reste à collecter
-    tauxProgression: number;        // pourcentage de collecte
+    totalAttendu: number;
+    collectes: number;
+    manquantsRestants: number;
+    tauxProgression: number;
   };
 }
 
@@ -62,9 +52,6 @@ export interface EneoRegion {
 const substationToFeederCache = new Map<string, string>();
 const bayToSubstationCache = new Map<string, string>();
 const poleToFeederCache = new Map<string, string>();
-
-// Cache pour les équipements Layer1 présents dans Layer2
-// Structure: Map<feederId, Set<mrid>>
 const collectedEquipmentCache = new Map<string, Set<string>>();
 
 // ─── Fonctions de résolution des relations ───────────────────────────────────
@@ -170,22 +157,33 @@ function extractFeederId(record: Record<string, unknown> | null): string {
   return "";
 }
 
+// ─── Fonction pour extraire le feeder d'un cas complexe ───────────────────────
+
+function extractFeederIdForComplexCase(anomaly: AnomalyCase): string {
+  const record = anomaly.layer2Record || anomaly.layer1Record;
+  if (!record) return "";
+  
+  const directFeeder = extractFeederId(record);
+  if (directFeeder) return directFeeder;
+  
+  // Pour les cas sans feeder direct, essayer de déterminer via d'autres moyens
+  if (record.substation_id) {
+    // Le substation_id peut être un ID valide mais non résolu
+    // On retourne une chaîne vide pour indiquer "sans feeder"
+    return "";
+  }
+  
+  return "";
+}
+
 // ─── Fonction pour calculer les équipements déjà collectés ───────────────────
 
-/**
- * Construit un cache des équipements Layer1 qui ont une correspondance dans Layer2
- * (peu importe si c'est bon, divergent ou en doublon)
- */
 function buildCollectedEquipmentCache(): void {
   const result = getComparison();
   
-  // Parcourir tous les cas d'anomalie
   for (const c of result.cases) {
-    // Si c'est un cas "missing", l'équipement n'est PAS collecté
     if (c.type === "missing") continue;
     
-    // Pour tous les autres types (duplicate, divergence, new, complex)
-    // L'équipement a une présence dans Layer2
     if (c.layer1Record) {
       const feederId = extractFeederId(c.layer1Record);
       const mrid = String(c.mrid);
@@ -202,9 +200,6 @@ function buildCollectedEquipmentCache(): void {
 
 // ─── Fonctions pour les KPIs des manquants ───────────────────────────────────
 
-/**
- * Calcule les statistiques de collecte pour un feeder donné
- */
 function getCollectionStatsForFeeder(feederId: string | number): {
   totalAttendu: number;
   collectes: number;
@@ -213,7 +208,6 @@ function getCollectionStatsForFeeder(feederId: string | number): {
 } {
   const feederStr = String(feederId);
   
-  // Compter tous les équipements Layer1 pour ce feeder
   const tables: TableName[] = ["substation", "powertransformer", "busbar", "bay", "switch", "wire", "pole", "node"];
   let totalAttendu = 0;
   const layer1Mrids: string[] = [];
@@ -231,10 +225,8 @@ function getCollectionStatsForFeeder(feederId: string | number): {
     }
   }
   
-  // Récupérer les équipements collectés depuis le cache
   const collectedSet = collectedEquipmentCache.get(feederStr) || new Set();
   
-  // Compter combien d'équipements Layer1 sont dans le cache
   let collectes = 0;
   for (const mrid of layer1Mrids) {
     if (collectedSet.has(mrid)) {
@@ -260,7 +252,6 @@ let _comparisonCache: ReturnType<typeof runComparison> | null = null;
 function getComparison() {
   if (!_comparisonCache) {
     _comparisonCache = runComparison();
-    // Une fois la comparaison chargée, construire le cache des équipements collectés
     buildCollectedEquipmentCache();
   }
   return _comparisonCache;
@@ -272,14 +263,12 @@ function buildDeparture(feederId: number | string, feederName: string): EneoDepa
   const result = getComparison();
   const feederStr = String(feederId);
 
-  // Anomalies relatives à ce départ
   const feederCases = result.cases.filter((c) => {
     const fid1 = extractFeederId(c.layer1Record);
     const fid2 = extractFeederId(c.layer2Record);
     return fid1 === feederStr || fid2 === feederStr;
   });
 
-  // Nombre total d'équipements BD1 pour ce départ
   const tables: TableName[] = ["substation", "powertransformer", "busbar", "bay", "switch", "wire", "pole", "node"];
   let equipmentCount = 0;
   for (const table of tables) {
@@ -292,7 +281,6 @@ function buildDeparture(feederId: number | string, feederName: string): EneoDepa
     }).length;
   }
 
-  // Calculer les stats de collecte pour ce feeder
   const collectionStats = getCollectionStatsForFeeder(feederId);
 
   return {
@@ -312,6 +300,34 @@ function buildDeparture(feederId: number | string, feederName: string): EneoDepa
   };
 }
 
+// ─── Départ spécial pour les équipements sans feeder ───────────────────────
+
+function buildOrphanDeparture(): EneoDeparture | null {
+  const result = getComparison();
+  const orphanCases = result.cases.filter((c) => {
+    if (c.type !== "complex") return false;
+    const fid = extractFeederIdForComplexCase(c);
+    return fid === "";
+  });
+  
+  if (orphanCases.length === 0) return null;
+  
+  return {
+    id: "orphan",
+    code: "ORPHELIN",
+    name: "Équipements sans feeder",
+    feederId: "orphan",
+    equipmentCount: orphanCases.length,
+    anomalyCounts: {
+      duplicate: 0,
+      divergence: 0,
+      new: 0,
+      missing: 0,
+      complex: orphanCases.length,
+    },
+  };
+}
+
 // ─── Hiérarchie statique DRD-O avec données réelles ──────────────────────
 
 const feeders = layer1DB.feeder;
@@ -327,7 +343,14 @@ export const eneoRegions: EneoRegion[] = [
         id: "DRD-O",
         code: "DRD-O",
         name: "Douala Ouest",
-        departures: feeders.map((feeder) => buildDeparture(feeder.m_rid, feeder.name)),
+        departures: (() => {
+          const regularDepartures = feeders.map((feeder) => buildDeparture(feeder.m_rid, feeder.name));
+          const orphanDeparture = buildOrphanDeparture();
+          if (orphanDeparture) {
+            return [...regularDepartures, orphanDeparture];
+          }
+          return regularDepartures;
+        })(),
       },
     ],
   },
@@ -339,12 +362,29 @@ export function getAnomaliesByFeeder(feederId: string | number, type?: AnomalyCa
   const result = getComparison();
   const targetFeeder = String(feederId);
   
+  // Si on demande les orphelins
+  if (targetFeeder === "orphan") {
+    return result.cases.filter((c) => {
+      if (type && c.type !== type) return false;
+      if (c.type !== "complex") return false;
+      const fid = extractFeederIdForComplexCase(c);
+      return fid === "";
+    });
+  }
+  
   return result.cases.filter((c) => {
+    const matchType = type ? c.type === type : true;
+    if (!matchType) return false;
+    
+    // Pour les cas complexes, on utilise la fonction spéciale
+    if (c.type === "complex") {
+      const fid = extractFeederIdForComplexCase(c);
+      return fid === targetFeeder;
+    }
+    
     const fid1 = extractFeederId(c.layer1Record);
     const fid2 = extractFeederId(c.layer2Record);
-    const matchFeeder = fid1 === targetFeeder || fid2 === targetFeeder;
-    const matchType = type ? c.type === type : true;
-    return matchFeeder && matchType;
+    return fid1 === targetFeeder || fid2 === targetFeeder;
   });
 }
 
@@ -357,11 +397,8 @@ export function getComparisonStats() {
   return getComparison().stats;
 }
 
-// ─── Nouvelles fonctions pour les KPIs des manquants ─────────────────────
+// ─── Fonctions pour les KPIs des manquants ─────────────────────────────────
 
-/**
- * Récupère les statistiques de collecte pour un départ donné
- */
 export function getCollectionStats(feederId: string | number): {
   totalAttendu: number;
   collectes: number;
@@ -371,9 +408,6 @@ export function getCollectionStats(feederId: string | number): {
   return getCollectionStatsForFeeder(feederId);
 }
 
-/**
- * Récupère les statistiques globales pour la page des manquants
- */
 export function getGlobalMissingStats() {
   let totalAttendu = 0;
   let totalCollectes = 0;

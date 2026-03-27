@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -24,11 +23,16 @@ import { DepartureCard } from "@/components/complex-cases/departure-card";
 import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filter";
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
-import { eneoRegions, getRegionStats, getZoneStats, EneoRegion, EneoZone, EneoDeparture } from "@/lib/api/eneo-data";
-import { Search, CheckSquare, CheckCircle, XCircle, Clock, FileCheck, User, Calendar, MapPin } from "lucide-react";
+import { 
+  eneoRegions, 
+  getAnomaliesByFeeder, 
+  getComparisonStats,
+  EneoRegion, 
+  EneoZone, 
+  EneoDeparture 
+} from "@/lib/api/eneo-data";
+import { Search, CheckSquare, CheckCircle, XCircle, Clock, FileCheck, User, Calendar, MapPin, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
-import { fr, enUS } from "date-fns/locale";
 
 type ViewLevel = "regions" | "zones" | "departures" | "validation";
 
@@ -63,23 +67,57 @@ interface DepartureValidation {
   };
 }
 
-// Générer des données de validation mock
-function generateMockValidationData(departure: EneoDeparture, region: EneoRegion | null, zone: EneoZone | null): DepartureValidation {
-  const totalEquipments = departure.equipmentCount;
-  const processedEquipments = Math.floor(totalEquipments * 0.7);
-  const validatedEquipments = Math.floor(processedEquipments * 0.8);
-  const rejectedEquipments = processedEquipments - validatedEquipments;
-  const pendingEquipments = totalEquipments - processedEquipments;
+// Stockage des statuts de validation des départs (simulé en mémoire)
+// Dans un vrai système, cela serait stocké dans une base de données
+const departureValidationStatus = new Map<string, DepartureValidation["status"]>();
 
-  const submittedDate = new Date(Date.now() - Math.floor(Math.random() * 14 * 24 * 60 * 60 * 1000));
-  const completedDate = Math.random() > 0.3 ? new Date(Date.now() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000)) : undefined;
-
-  const statuses: ("pending" | "in_review" | "validated" | "rejected")[] = ["pending", "in_review", "validated", "rejected"];
-  const status = statuses[Math.floor(Math.random() * statuses.length)];
-
-  const installationDate = new Date(Date.now() - Math.floor(Math.random() * 365 * 24 * 60 * 60 * 1000));
-  const lastMaintenance = new Date(Date.now() - Math.floor(Math.random() * 90 * 24 * 60 * 60 * 1000));
-
+// Construire les données de validation à partir des anomalies réelles
+function buildValidationDataFromAnomalies(
+  departure: EneoDeparture, 
+  region: EneoRegion | null, 
+  zone: EneoZone | null
+): DepartureValidation {
+  const totalEquipments = departure.collectionStats?.totalAttendu || departure.equipmentCount;
+  const collectes = departure.collectionStats?.collectes || 0;
+  const manquantsRestants = departure.collectionStats?.manquantsRestants || 0;
+  
+  // Récupérer les anomalies pour ce départ
+  const duplicates = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+  const divergences = getAnomaliesByFeeder(departure.feederId, "divergence").length;
+  const complex = getAnomaliesByFeeder(departure.feederId, "complex").length;
+  
+  // Les équipements "bons" sont ceux collectés sans anomalie
+  const validatedEquipments = collectes - (duplicates + divergences + complex);
+  
+  // Les équipements "en attente" sont ceux manquants (à collecter)
+  const pendingEquipments = manquantsRestants;
+  
+  // Les équipements "à corriger" = ceux qui ont des divergences ou des doublons
+  const rejectedEquipments = duplicates + divergences + complex;
+  
+  // Les équipements "traités" = collectés (bons + anomalies)
+  const processedEquipments = collectes;
+  
+  // Récupérer le statut de validation stocké ou déterminer un statut par défaut
+  let status: DepartureValidation["status"] = departureValidationStatus.get(departure.id) || "pending";
+  
+  // Si le statut n'est pas encore défini, le déterminer automatiquement
+  if (!departureValidationStatus.has(departure.id)) {
+    if (pendingEquipments === 0 && rejectedEquipments === 0) {
+      status = "validated";
+      departureValidationStatus.set(departure.id, "validated");
+    } else if (processedEquipments > 0 && rejectedEquipments === 0) {
+      status = "in_review";
+      departureValidationStatus.set(departure.id, "in_review");
+    } else {
+      status = "pending";
+      departureValidationStatus.set(departure.id, "pending");
+    }
+  }
+  
+  // Date de soumission
+  const submittedDate = new Date();
+  
   return {
     id: `val-${departure.id}`,
     departureId: departure.id,
@@ -87,13 +125,11 @@ function generateMockValidationData(departure: EneoDeparture, region: EneoRegion
     departureName: departure.name,
     departureLocation: `${zone?.name || "Zone inconnue"}, ${region?.name || "Région inconnue"}`,
     status,
-    submittedBy: ["Jean Dupont", "Marie Kouam", "Paul Ndi", "Claire Biya"][Math.floor(Math.random() * 4)],
+    submittedBy: "Agent terrain",
     submittedAt: submittedDate.toLocaleDateString("fr-FR"),
-    completedAt: completedDate?.toLocaleDateString("fr-FR"),
-    validatedBy: status === "validated" || status === "rejected" ? "Admin ENEO" : undefined,
-    validatedAt: completedDate?.toLocaleDateString("fr-FR"),
-    rejectionReason: status === "rejected" ? "Plusieurs incohérences détectées dans les données" : undefined,
-    validationComment: status === "validated" ? "Validation complète approuvée" : undefined,
+    completedAt: status === "validated" ? submittedDate.toLocaleDateString("fr-FR") : undefined,
+    validatedBy: status === "validated" ? "Système" : undefined,
+    validatedAt: status === "validated" ? submittedDate.toLocaleDateString("fr-FR") : undefined,
     stats: {
       totalEquipments,
       processedEquipments,
@@ -102,16 +138,16 @@ function generateMockValidationData(departure: EneoDeparture, region: EneoRegion
       rejectedEquipments,
     },
     details: {
-      responsibleAgent: ["Pierre Kamga", "Esther Ngo", "François Mbarga", "Catherine Ndi"][Math.floor(Math.random() * 4)],
+      responsibleAgent: "Équipe terrain Bonaberi",
       zone: zone?.name || "Zone non spécifiée",
       region: region?.name || "Région non spécifiée",
-      installationDate: installationDate.toLocaleDateString("fr-FR"),
-      lastMaintenance: lastMaintenance.toLocaleDateString("fr-FR"),
+      installationDate: "Non spécifiée",
+      lastMaintenance: "Non spécifiée",
     },
   };
 }
 
-// Composant d'interface de validation simplifié
+// Composant d'interface de validation
 function ValidationInterface({ 
   validation, 
   onValidate, 
@@ -149,9 +185,9 @@ function ValidationInterface({
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge className="bg-yellow-500 text-white">En attente</Badge>;
+        return <Badge className="bg-yellow-500 text-white">En attente de validation</Badge>;
       case "in_review":
-        return <Badge className="bg-blue-500 text-white">En revue</Badge>;
+        return <Badge className="bg-blue-500 text-white">En cours d'analyse</Badge>;
       case "validated":
         return <Badge className="bg-green-500 text-white">Validé</Badge>;
       case "rejected":
@@ -178,6 +214,9 @@ function ValidationInterface({
   const canValidate = validation.status === "in_review" || validation.status === "pending";
   const canReject = validation.status === "in_review" || validation.status === "pending";
   const isAlreadyProcessed = validation.status === "validated" || validation.status === "rejected";
+  
+  // Vérifier si le départ est prêt à être validé (pas d'équipements en attente ni à corriger)
+  const isReadyForValidation = validation.stats.pendingEquipments === 0 && validation.stats.rejectedEquipments === 0;
 
   return (
     <div className="space-y-6">
@@ -199,58 +238,21 @@ function ValidationInterface({
         </CardHeader>
       </Card>
 
-      {/* Informations de soumission */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Informations de soumission</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-center gap-3">
-              <User className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">Soumis par</p>
-                <p className="font-medium">{validation.submittedBy}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Calendar className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">Date de soumission</p>
-                <p className="font-medium">{validation.submittedAt}</p>
-              </div>
-            </div>
-            {validation.completedAt && (
-              <div className="flex items-center gap-3">
-                <Clock className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Date de traitement</p>
-                  <p className="font-medium">{validation.completedAt}</p>
-                </div>
-              </div>
-            )}
-            {validation.validatedBy && (
-              <div className="flex items-center gap-3">
-                <User className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <p className="text-sm text-muted-foreground">Validé par</p>
-                  <p className="font-medium">{validation.validatedBy}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Statistiques du départ */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Statistiques du départ</CardTitle>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            État de la collecte
+          </CardTitle>
+          <CardDescription>
+            Équipements du départ {validation.departureCode} et leur statut de collecte
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center p-3 bg-muted/30 rounded-lg">
-              <p className="text-sm text-muted-foreground">Total éléments</p>
+              <p className="text-sm text-muted-foreground">Total attendu</p>
               <p className="text-2xl font-bold">{validation.stats.totalEquipments}</p>
             </div>
             <div className="text-center p-3 bg-green-50 rounded-lg">
@@ -258,11 +260,11 @@ function ValidationInterface({
               <p className="text-2xl font-bold text-green-600">{validation.stats.validatedEquipments}</p>
             </div>
             <div className="text-center p-3 bg-red-50 rounded-lg">
-              <p className="text-sm text-muted-foreground">Rejetés</p>
+              <p className="text-sm text-muted-foreground">À corriger</p>
               <p className="text-2xl font-bold text-red-600">{validation.stats.rejectedEquipments}</p>
             </div>
             <div className="text-center p-3 bg-yellow-50 rounded-lg">
-              <p className="text-sm text-muted-foreground">En attente</p>
+              <p className="text-sm text-muted-foreground">À collecter</p>
               <p className="text-2xl font-bold text-yellow-600">{validation.stats.pendingEquipments}</p>
             </div>
             <div className="text-center p-3 bg-blue-50 rounded-lg">
@@ -275,15 +277,69 @@ function ValidationInterface({
         </CardContent>
       </Card>
 
+      {/* Détail des anomalies */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Détail des anomalies détectées</CardTitle>
+          <CardDescription>
+            Les équipements à corriger avant validation finale
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {validation.stats.rejectedEquipments > 0 ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-sm text-red-700 font-medium mb-2">
+                  {validation.stats.rejectedEquipments} équipement(s) nécessitent une correction
+                </p>
+                <ul className="text-sm text-red-600 space-y-1 list-disc list-inside">
+                  {getAnomaliesByFeeder(validation.departureId, "divergence").length > 0 && (
+                    <li>{getAnomaliesByFeeder(validation.departureId, "divergence").length} divergence(s) de données</li>
+                  )}
+                  {getAnomaliesByFeeder(validation.departureId, "duplicate").length > 0 && (
+                    <li>{getAnomaliesByFeeder(validation.departureId, "duplicate").length} doublon(s) détecté(s)</li>
+                  )}
+                  {getAnomaliesByFeeder(validation.departureId, "complex").length > 0 && (
+                    <li>{getAnomaliesByFeeder(validation.departureId, "complex").length} cas complexe(s)</li>
+                  )}
+                </ul>
+              </div>
+            ) : (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm text-green-700 font-medium">
+                  ✅ Aucune anomalie détectée sur les équipements collectés
+                </p>
+              </div>
+            )}
+            
+            {validation.stats.pendingEquipments > 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-sm text-yellow-700 font-medium">
+                  ⚠️ {validation.stats.pendingEquipments} équipement(s) non encore collectés
+                </p>
+              </div>
+            )}
+            
+            {isReadyForValidation && validation.status !== "validated" && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-700 font-medium">
+                  ✅ Tous les équipements sont collectés et sans anomalie. Prêt à être validé !
+                </p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Détails techniques */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Détails techniques</CardTitle>
+          <CardTitle className="text-lg">Informations de collecte</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-muted-foreground">Agent responsable</p>
+              <p className="text-sm text-muted-foreground">Équipe responsable</p>
               <p className="font-medium">{validation.details.responsibleAgent}</p>
             </div>
             <div>
@@ -295,12 +351,8 @@ function ValidationInterface({
               <p className="font-medium">{validation.details.region}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Date d'installation</p>
-              <p className="font-medium">{validation.details.installationDate}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Dernière maintenance</p>
-              <p className="font-medium">{validation.details.lastMaintenance}</p>
+              <p className="text-sm text-muted-foreground">Date de dernière collecte</p>
+              <p className="font-medium">{validation.submittedAt}</p>
             </div>
           </div>
         </CardContent>
@@ -336,6 +388,8 @@ function ValidationInterface({
           <Button
             size="lg"
             onClick={() => setShowValidateDialog(true)}
+            disabled={!isReadyForValidation}
+            title={!isReadyForValidation ? "Tous les équipements doivent être collectés et sans anomalie" : ""}
           >
             <CheckCircle className="h-4 w-4 mr-2" />
             Valider le départ
@@ -351,11 +405,20 @@ function ValidationInterface({
               <>
                 <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-2" />
                 <p className="text-green-600 font-medium">Ce départ a déjà été validé</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Validé le {validation.validatedAt} par {validation.validatedBy}
+                </p>
               </>
             ) : (
               <>
                 <XCircle className="h-12 w-12 text-red-500 mx-auto mb-2" />
                 <p className="text-red-600 font-medium">Ce départ a été rejeté</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Rejeté le {validation.validatedAt} par {validation.validatedBy}
+                </p>
+                {validation.rejectionReason && (
+                  <p className="text-sm text-muted-foreground mt-2">Motif: {validation.rejectionReason}</p>
+                )}
               </>
             )}
           </CardContent>
@@ -384,15 +447,15 @@ function ValidationInterface({
                 rows={4}
               />
             </div>
-            <div className="bg-muted/30 p-3 rounded-lg">
-              <p className="text-sm font-medium mb-2">Récapitulatif</p>
+            <div className="bg-green-50 p-3 rounded-lg">
+              <p className="text-sm font-medium text-green-800 mb-2">Récapitulatif</p>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <span className="text-muted-foreground">Total éléments:</span>
+                <span className="text-green-700">Total équipements:</span>
                 <span className="font-medium">{validation.stats.totalEquipments}</span>
-                <span className="text-muted-foreground">Éléments validés:</span>
-                <span className="font-medium text-green-600">{validation.stats.validatedEquipments}</span>
-                <span className="text-muted-foreground">Éléments rejetés:</span>
-                <span className="font-medium text-red-600">{validation.stats.rejectedEquipments}</span>
+                <span className="text-green-700">Tous collectés:</span>
+                <span className="font-medium">✅ Oui</span>
+                <span className="text-green-700">Sans anomalie:</span>
+                <span className="font-medium">✅ Oui</span>
               </div>
             </div>
           </div>
@@ -431,6 +494,23 @@ function ValidationInterface({
                 rows={4}
               />
             </div>
+            <div className="bg-red-50 p-3 rounded-lg">
+              <p className="text-sm font-medium text-red-800 mb-2">Anomalies à corriger</p>
+              <ul className="text-sm text-red-700 space-y-1 list-disc list-inside">
+                {validation.stats.pendingEquipments > 0 && (
+                  <li>{validation.stats.pendingEquipments} équipement(s) non collecté(s)</li>
+                )}
+                {getAnomaliesByFeeder(validation.departureId, "divergence").length > 0 && (
+                  <li>{getAnomaliesByFeeder(validation.departureId, "divergence").length} divergence(s)</li>
+                )}
+                {getAnomaliesByFeeder(validation.departureId, "duplicate").length > 0 && (
+                  <li>{getAnomaliesByFeeder(validation.departureId, "duplicate").length} doublon(s)</li>
+                )}
+                {getAnomaliesByFeeder(validation.departureId, "complex").length > 0 && (
+                  <li>{getAnomaliesByFeeder(validation.departureId, "complex").length} cas complexe(s)</li>
+                )}
+              </ul>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRejectDialog(false)}>
@@ -464,40 +544,71 @@ export default function ValidationPage() {
   const [validationData, setValidationData] = useState<DepartureValidation | null>(null);
   const [isValidationLoading, setIsValidationLoading] = useState(false);
 
-  // Generate validation data when departure is selected
+  // Build validation data when departure is selected
   useEffect(() => {
     if (selectedDeparture) {
       setIsValidationLoading(true);
-      // Simulate API call
       setTimeout(() => {
-        setValidationData(generateMockValidationData(selectedDeparture, selectedRegion, selectedZone));
+        setValidationData(buildValidationDataFromAnomalies(selectedDeparture, selectedRegion, selectedZone));
         setIsValidationLoading(false);
-      }, 500);
+      }, 100);
     } else {
       setValidationData(null);
     }
   }, [selectedDeparture, selectedRegion, selectedZone]);
 
-  // Calculate global stats
+  // Calculer les stats globales pour la page Validation
+  // Ici, "completed" = nombre de départs validés
   const globalStats = useMemo(() => {
-    let total = 0;
-    let pending = 0;
-    let validated = 0;
-    let rejected = 0;
-
+    let totalDepartures = 0;
+    let validatedDepartures = 0;
+    
     eneoRegions.forEach((region) => {
-      const stats = getRegionStats(region.id);
-      total += stats.total;
-      pending += stats.pending;
-      validated += stats.completed;
-      rejected += stats.inProgress;
+      region.zones.forEach((zone) => {
+        zone.departures.forEach((departure) => {
+          totalDepartures++;
+          
+          // Vérifier si le départ est validé
+          const status = departureValidationStatus.get(departure.id);
+          if (status === "validated") {
+            validatedDepartures++;
+          }
+        });
+      });
     });
-
+    
+    // Pour les départs sans statut, vérifier s'ils sont prêts à être validés
+    eneoRegions.forEach((region) => {
+      region.zones.forEach((zone) => {
+        zone.departures.forEach((departure) => {
+          if (!departureValidationStatus.has(departure.id)) {
+            const collectes = departure.collectionStats?.collectes || 0;
+            const totalAttendu = departure.collectionStats?.totalAttendu || departure.equipmentCount;
+            const duplicates = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+            const divergences = getAnomaliesByFeeder(departure.feederId, "divergence").length;
+            const complex = getAnomaliesByFeeder(departure.feederId, "complex").length;
+            
+            const pendingEquipments = totalAttendu - collectes;
+            const rejectedEquipments = duplicates + divergences + complex;
+            
+            // Si tous les équipements sont collectés et sans anomalie, on considère comme validé
+            if (pendingEquipments === 0 && rejectedEquipments === 0) {
+              validatedDepartures++;
+              departureValidationStatus.set(departure.id, "validated");
+            }
+          }
+        });
+      });
+    });
+    
+    const pendingAndInProgress = totalDepartures - validatedDepartures;
+    const completionRate = totalDepartures > 0 ? Math.round((validatedDepartures / totalDepartures) * 100) : 0;
+    
     return {
-      total,
-      pendingAndInProgress: pending,
-      completed: validated,
-      completionRate: total > 0 ? Math.round((validated / total) * 100) : 0,
+      total: totalDepartures,
+      pendingAndInProgress: pendingAndInProgress,
+      completed: validatedDepartures,
+      completionRate: completionRate,
     };
   }, []);
 
@@ -554,17 +665,23 @@ export default function ValidationPage() {
 
   // Validation actions
   const handleValidateDeparture = (validation: DepartureValidation, comment: string) => {
+    // Mettre à jour le statut dans le Map
+    departureValidationStatus.set(validation.departureId, "validated");
+    
     toast.success(`Départ ${validation.departureCode} validé avec succès`);
     setValidationData({
       ...validation,
       status: "validated",
       validatedBy: user?.firstName || "Admin",
       validatedAt: new Date().toLocaleDateString("fr-FR"),
-      validationComment: comment || "Validation approuvée",
+      validationComment: comment || "Validation approuvée - tous les équipements sont collectés et conformes",
     });
   };
 
   const handleRejectDeparture = (validation: DepartureValidation, reason: string) => {
+    // Mettre à jour le statut dans le Map
+    departureValidationStatus.set(validation.departureId, "rejected");
+    
     toast.info(`Départ ${validation.departureCode} rejeté: ${reason}`);
     setValidationData({
       ...validation,
@@ -617,13 +734,13 @@ export default function ValidationPage() {
             Validation
           </h1>
           <p className="text-muted-foreground mt-1">
-            Validation des départs et de leurs données associées
+            Validation des départs dont tous les équipements ont été collectés et vérifiés
           </p>
         </div>
         <PeriodFilter value={period} onChange={setPeriod} />
       </div>
 
-      {/* Global Stats */}
+      {/* Global Stats - Maintenant basé sur le nombre de départs */}
       <GlobalStatsCards
         total={globalStats.total}
         pendingAndInProgress={globalStats.pendingAndInProgress}
@@ -655,7 +772,40 @@ export default function ValidationPage() {
           <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredRegions.map((region) => {
-              const stats = getRegionStats(region.id);
+              // Calculer les stats de la région (nombre de départs validés)
+              let totalDepartures = 0;
+              let validatedDepartures = 0;
+              
+              region.zones.forEach(zone => {
+                zone.departures.forEach(departure => {
+                  totalDepartures++;
+                  const status = departureValidationStatus.get(departure.id);
+                  if (status === "validated") {
+                    validatedDepartures++;
+                  } else if (!departureValidationStatus.has(departure.id)) {
+                    // Vérifier si prêt à être validé
+                    const collectes = departure.collectionStats?.collectes || 0;
+                    const totalAttendu = departure.collectionStats?.totalAttendu || departure.equipmentCount;
+                    const duplicates = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+                    const divergences = getAnomaliesByFeeder(departure.feederId, "divergence").length;
+                    const complex = getAnomaliesByFeeder(departure.feederId, "complex").length;
+                    
+                    if (collectes === totalAttendu && duplicates === 0 && divergences === 0 && complex === 0) {
+                      validatedDepartures++;
+                    }
+                  }
+                });
+              });
+              
+              const pendingDepartures = totalDepartures - validatedDepartures;
+              
+              const stats = {
+                total: totalDepartures,
+                pending: pendingDepartures,
+                inProgress: 0,
+                completed: validatedDepartures,
+              };
+              
               return (
                 <RegionCard
                   key={region.id}
@@ -684,7 +834,37 @@ export default function ValidationPage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredZones.map((zone) => {
-              const stats = getZoneStats(zone.id);
+              // Calculer les stats de la zone (nombre de départs validés)
+              let totalDepartures = 0;
+              let validatedDepartures = 0;
+              
+              zone.departures.forEach(departure => {
+                totalDepartures++;
+                const status = departureValidationStatus.get(departure.id);
+                if (status === "validated") {
+                  validatedDepartures++;
+                } else if (!departureValidationStatus.has(departure.id)) {
+                  const collectes = departure.collectionStats?.collectes || 0;
+                  const totalAttendu = departure.collectionStats?.totalAttendu || departure.equipmentCount;
+                  const duplicates = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+                  const divergences = getAnomaliesByFeeder(departure.feederId, "divergence").length;
+                  const complex = getAnomaliesByFeeder(departure.feederId, "complex").length;
+                  
+                  if (collectes === totalAttendu && duplicates === 0 && divergences === 0 && complex === 0) {
+                    validatedDepartures++;
+                  }
+                }
+              });
+              
+              const pendingDepartures = totalDepartures - validatedDepartures;
+              
+              const stats = {
+                total: totalDepartures,
+                pending: pendingDepartures,
+                inProgress: 0,
+                completed: validatedDepartures,
+              };
+              
               return (
                 <ZoneCard
                   key={zone.id}
@@ -708,20 +888,35 @@ export default function ValidationPage() {
       {viewLevel === "departures" && selectedZone && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Departs de {selectedZone.name} ({filteredDepartures.length})
+            Départs de {selectedZone.name} ({filteredDepartures.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredDepartures.map((departure) => {
-              const completed = Math.floor(departure.equipmentCount * 0.6);
-              const pending = departure.equipmentCount - completed;
+              const stats = departure.collectionStats;
+              const totalEquipments = stats?.totalAttendu || 0;
+              const collectes = stats?.collectes || 0;
+              const pendingEquipments = stats?.manquantsRestants || 0;
+              
+              // Vérifier si le départ est validé
+              const isValidated = departureValidationStatus.get(departure.id) === "validated";
+              
+              // Si tous les équipements sont collectés et sans anomalie, le départ est prêt
+              const duplicates = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+              const divergences = getAnomaliesByFeeder(departure.feederId, "divergence").length;
+              const complex = getAnomaliesByFeeder(departure.feederId, "complex").length;
+              const isReady = pendingEquipments === 0 && duplicates === 0 && divergences === 0 && complex === 0;
+              
+              const completedCount = isValidated ? totalEquipments : 0;
+              const pendingCount = isValidated ? 0 : totalEquipments - collectes;
+              
               return (
                 <DepartureCard
                   key={departure.id}
                   code={departure.code}
                   name={departure.name}
-                  equipmentCount={departure.equipmentCount}
-                  completedCount={completed}
-                  pendingCount={pending}
+                  equipmentCount={totalEquipments}
+                  completedCount={completedCount}
+                  pendingCount={pendingCount}
                   onClick={() => handleDepartureClick(departure)}
                 />
               );
@@ -729,7 +924,7 @@ export default function ValidationPage() {
           </div>
           {filteredDepartures.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              Aucun depart trouvé pour "{searchQuery}"
+              Aucun départ trouvé pour "{searchQuery}"
             </div>
           )}
         </div>
