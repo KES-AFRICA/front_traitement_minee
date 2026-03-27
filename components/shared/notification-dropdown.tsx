@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useI18n } from "@/lib/i18n/context";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,7 @@ const notificationIcons: Record<Notification["type"], React.ReactNode> = {
 
 export function NotificationDropdown() {
   const { t, language } = useI18n();
+  const router = useRouter();
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
@@ -121,6 +123,13 @@ export function NotificationDropdown() {
             ))
           )}
         </ScrollArea>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => router.push("/notifications")}
+          className="text-center justify-center cursor-pointer"
+        >
+          {language === "fr" ? "Voir toutes les notifications" : "View all notifications"}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

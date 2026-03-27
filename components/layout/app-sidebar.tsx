@@ -48,6 +48,7 @@ import {
   FileX,
   User,
   AlertCircle,
+  Bell,
 } from "lucide-react";
 
 const roleLabels: Record<string, string> = {
@@ -112,6 +113,12 @@ export function AppSidebar() {
       url: "/users",
       icon: Users,
       permission: "view:users",
+    },
+    {
+      title: t("nav.notifications"),
+      url: "/notifications",
+      icon: Bell,
+      //permission: "view:notifications",
     },
     {
       title: t("nav.map"),

@@ -67,6 +67,7 @@ export const translations = {
       newKobo: "Nouveaux",
       missingEneo: "Manquants",
       complexCases: "Cas Complexes",
+      notifications: "Notifications",
     },
 
     // Complex Cases
@@ -318,6 +319,7 @@ export const translations = {
     newKobo: "New",
     missingEneo: "Missing",
     complexCases: "Complex Cases",
+    notifications: "Notifications"
   },
 
     // Complex Cases

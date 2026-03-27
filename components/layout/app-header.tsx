@@ -26,6 +26,7 @@ const pathTitles: Record<string, { key: string; parent?: string }> = {
   "/processing/complex": { key: "nav.complexCases", parent: "/processing" },
   "/validation": { key: "nav.validation" },
   "/users": { key: "nav.users" },
+  "/notifications": { key: "nav.notifications" },
   "/map": { key: "nav.map" },
   "/performance": { key: "nav.performance" },
   "/settings": { key: "nav.settings" },

@@ -120,6 +120,7 @@ export interface Region {
 
 // Notification types
 export interface Notification {
+  isArchived: unknown;
   id: string;
   type: "new_task" | "task_validated" | "task_rejected" | "comment" | "system";
   title: string;
