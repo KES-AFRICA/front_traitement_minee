@@ -1,191 +1,268 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useI18n } from "@/lib/i18n/context";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bell, Check, Trash2 } from "lucide-react";
+import { PeriodFilter, TimePeriod } from "@/components/notifications/period-filter";
+import { NotificationListItem } from "@/components/notifications/notification-list-item";
+import { NotificationDetailView } from "@/components/notifications/notification-detail-view";
+import { NotificationGroup } from "@/components/notifications/notification-group";
+import { ResizableDivider } from "@/components/notifications/resizable-divider";
 import { Notification } from "@/lib/api/types";
 import { mockNotifications } from "@/lib/api/mock-data";
-import { formatDistanceToNow } from "date-fns";
+import { Search, Bell, Check } from "lucide-react";
+import {
+  formatDistanceToNow,
+  isToday,
+  isYesterday,
+  isThisWeek,
+  isThisMonth,
+} from "date-fns";
 import { fr, enUS } from "date-fns/locale";
 
-const notificationIcons: Record<Notification["type"], React.ReactNode> = {
-  new_task: <Bell className="h-5 w-5 text-blue-600" />,
-  task_validated: <Check className="h-5 w-5 text-green-600" />,
-  task_rejected: <Bell className="h-5 w-5 text-red-600" />,
-  comment: <Bell className="h-5 w-5 text-orange-600" />,
-  system: <Bell className="h-5 w-5 text-gray-600" />,
+const getDateGroup = (date: Date, language: string): string => {
+  if (isToday(date)) return language === "fr" ? "Aujourd'hui" : "Today";
+  if (isYesterday(date)) return language === "fr" ? "Hier" : "Yesterday";
+  if (isThisWeek(date))
+    return language === "fr" ? "Cette semaine" : "This week";
+  if (isThisMonth(date))
+    return language === "fr" ? "Ce mois" : "This month";
+  return language === "fr" ? "Plus ancien" : "Older";
 };
 
-const typeLabels: Record<Notification["type"], string> = {
-  new_task: "Nouvelle tâche",
-  task_validated: "Tâche validée",
-  task_rejected: "Tâche rejetée",
-  comment: "Commentaire",
-  system: "Système",
+const getTimePeriodMs = (period: TimePeriod): number => {
+  switch (period) {
+    case "24h":
+      return 24 * 60 * 60 * 1000;
+    case "7d":
+      return 7 * 24 * 60 * 60 * 1000;
+    case "30d":
+      return 30 * 24 * 60 * 60 * 1000;
+  }
 };
 
 export default function NotificationsPage() {
-  const { t, language } = useI18n();
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const { language } = useI18n();
+  const [notifications, setNotifications] = useState<Notification[]>(
+    mockNotifications
+  );
+  const [selectedNotification, setSelectedNotification] =
+    useState<Notification | null>(notifications[0] || null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("24h");
+  const [leftWidth, setLeftWidth] = useState(45);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
-  const unreadNotifications = notifications.filter((n) => !n.isRead);
-  const readNotifications = notifications.filter((n) => n.isRead);
+  const periodFiltered = useMemo(() => {
+    const periodMs = getTimePeriodMs(timePeriod);
+    const cutoffTime = Date.now() - periodMs;
+    return notifications.filter(
+      (n) => new Date(n.createdAt).getTime() > cutoffTime
+    );
+  }, [notifications, timePeriod]);
 
-  const markAsRead = (id: string) => {
+  const filtered = useMemo(() => {
+    if (!searchQuery) return periodFiltered;
+    const query = searchQuery.toLowerCase();
+    return periodFiltered.filter(
+      (n) =>
+        n.title.toLowerCase().includes(query) ||
+        n.message.toLowerCase().includes(query)
+    );
+  }, [periodFiltered, searchQuery]);
+
+  const grouped = useMemo(() => {
+    const groups: Record<string, Notification[]> = {};
+    filtered.forEach((n) => {
+      const dateGroup = getDateGroup(
+        new Date(n.createdAt),
+        language
+      );
+      if (!groups[dateGroup]) groups[dateGroup] = [];
+      groups[dateGroup].push(n);
+    });
+    return groups;
+  }, [filtered, language]);
+
+  const handleSelectNotification = (notification: Notification) => {
+    setSelectedNotification(notification);
+    if (!notification.isRead) {
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.id === notification.id ? { ...n, isRead: true } : n
+        )
+      );
+    }
+  };
+
+  const handleMarkAsRead = (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
   };
 
-  const markAllAsRead = () => {
+  const handleMarkAllAsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
   };
 
-  const deleteNotification = (id: string) => {
+  const handleDelete = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (selectedNotification?.id === id) {
+      setSelectedNotification(
+        notifications.find((n) => n.id !== id) || null
+      );
+    }
   };
 
-  const formatDate = (dateString: string) => {
-    return formatDistanceToNow(new Date(dateString), {
-      addSuffix: true,
-      locale: language === "fr" ? fr : enUS,
-    });
-  };
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <div className="space-y-6">
+    <div className="h-screen flex flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
-            <Bell className="h-8 w-8" />
-            {t("notifications.title")}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {unreadCount > 0 
-              ? `${unreadCount} notification(s) non lue(s)`
-              : "Toutes les notifications ont été lues"}
-          </p>
+      <div className="border-b bg-card px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Bell className="h-6 w-6 text-primary" />
+          <div>
+            <h1 className="font-semibold text-foreground">
+              {language === "fr" ? "Notifications" : "Notifications"}
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              {unreadCount > 0
+                ? language === "fr"
+                  ? `${unreadCount} non lue(s)`
+                  : `${unreadCount} unread`
+                : language === "fr"
+                  ? "Aucune nouvelle"
+                  : "All caught up"}
+            </p>
+          </div>
         </div>
-        {unreadCount > 0 && (
-          <Button onClick={markAllAsRead} variant="outline" className="gap-2">
-            <Check className="h-4 w-4" />
-            {t("notifications.markAllRead")}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <PeriodFilter
+            selected={timePeriod}
+            onSelectPeriod={setTimePeriod}
+            language={language}
+          />
+          {unreadCount > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleMarkAllAsRead}
+              className="gap-1.5"
+            >
+              <Check className="h-4 w-4" />
+              <span className="hidden sm:inline text-xs">
+                {language === "fr" ? "Tout lire" : "Mark all"}
+              </span>
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Unread Notifications */}
-      {unreadNotifications.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Non lues ({unreadCount})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-auto">
-              <div className="space-y-3">
-                {unreadNotifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    className="flex gap-3 p-3 rounded-lg border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
-                  >
-                    <div className="mt-1">{notificationIcons[notification.type]}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-semibold text-sm">{notification.title}</p>
-                          <p className="text-sm text-muted-foreground line-clamp-2">
-                            {notification.message}
-                          </p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Badge variant="outline" className="text-xs">
-                              {typeLabels[notification.type]}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {formatDate(notification.createdAt)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => markAsRead(notification.id)}
-                          >
-                            <Check className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => deleteNotification(notification.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+      {/* Main content */}
+      <div className="flex-1 flex gap-0 overflow-hidden">
+        {/* Left panel - List */}
+        <div
+          className="flex flex-col border-r overflow-hidden transition-all"
+          style={{ width: `${leftWidth}%` }}
+        >
+          {/* Search */}
+          <div className="border-b p-3 flex-shrink-0">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder={language === "fr" ? "Chercher..." : "Search..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Notifications list */}
+          <ScrollArea className="flex-1">
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
+                <Bell className="h-12 w-12 opacity-20 mb-2" />
+                <p className="text-sm">
+                  {language === "fr"
+                    ? "Aucune notification"
+                    : "No notifications"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-0">
+                {Object.entries(grouped).map(([dateGroup, notifs]) => (
+                  <NotificationGroup
+                    key={dateGroup}
+                    date={dateGroup}
+                    notifications={notifs}
+                    onSelect={handleSelectNotification}
+                    selectedId={selectedNotification?.id}
+                    language={language}
+                  />
                 ))}
               </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      )}
+            )}
+          </ScrollArea>
+        </div>
 
-      {/* Read Notifications */}
-      {readNotifications.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Lues ({readNotifications.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-auto">
-              <div className="space-y-2">
-                {readNotifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    className="flex gap-3 p-3 rounded-lg hover:bg-muted transition-colors opacity-75"
-                  >
-                    <div className="mt-1">{notificationIcons[notification.type]}</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm text-foreground">{notification.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDate(notification.createdAt)}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => deleteNotification(notification.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+        {/* Resizable divider */}
+        <div
+          className="flex h-full"
+          style={{ width: `${100 - leftWidth}%`, position: "relative" }}
+        >
+          <div
+            onMouseDown={(e) => {
+              const startX = e.clientX;        
+              const startWidth = leftWidth;
+              const container = document.body;
+
+              const handleMove = (moveEvent: MouseEvent) => {
+                const deltaX = moveEvent.clientX - startX;
+                const containerWidth = container.clientWidth;
+                const deltaPercent = (deltaX / containerWidth) * 100;
+                const newLeftWidth = startWidth + deltaPercent;
+
+                if (newLeftWidth >= 20 && newLeftWidth <= 80) {
+                  setLeftWidth(newLeftWidth);
+                }
+              };
+
+              const handleUp = () => {
+                document.removeEventListener("mousemove", handleMove);
+                document.removeEventListener("mouseup", handleUp);
+              };
+
+              document.addEventListener("mousemove", handleMove);
+              document.addEventListener("mouseup", handleUp);
+            }}
+            className="w-1 bg-border hover:bg-primary/50 transition-colors cursor-col-resize select-none"
+          />
+
+          {/* Right panel - Details */}
+          <div className="hidden md:flex flex-col flex-1 overflow-hidden bg-card">
+            {selectedNotification ? (
+              <NotificationDetailView
+                notification={selectedNotification}
+                onMarkAsRead={handleMarkAsRead}
+                onDelete={handleDelete}
+                language={language}
+              />
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
+                <Bell className="h-16 w-16 opacity-10 mb-4" />
+                <p className="text-sm">
+                  {language === "fr"
+                    ? "Sélectionnez une notification"
+                    : "Select a notification"}
+                </p>
               </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Empty state */}
-      {notifications.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Bell className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-            <p className="text-muted-foreground">{t("notifications.noNotifications")}</p>
-          </CardContent>
-        </Card>
-      )}
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
