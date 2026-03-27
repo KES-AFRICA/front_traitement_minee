@@ -19,7 +19,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarSeparator,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
@@ -32,6 +31,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Database,
@@ -47,52 +47,13 @@ import {
   Bell,
   DollarSign,
   Building2,
-  Bolt,
   Copy,
   GitCompare,
   FilePlus,
   Zap,
+  Eye,
+  XCircle,
 } from "lucide-react";
-import { LucideIcon } from "lucide-react";
-
-// Définition des types
-type SubSubMenuItem = {
-  title: string;
-  url: string;
-  icon: LucideIcon;
-};
-
-type SubMenuItem = {
-  title: string;
-  icon: LucideIcon;
-  url?: string;
-  permission?: string;
-  items?: SubSubMenuItem[];
-};
-
-type SectionDropdownItem = {
-  title: string;
-  icon: LucideIcon;
-  type: "section-dropdown";
-  color: string;
-  bgColor: string;
-  borderColor: string;
-  items: SubMenuItem[];
-};
-
-type SimpleMenuItem = {
-  title: string;
-  url: string;
-  icon: LucideIcon;
-  permission?: string;
-  type?: never;
-  color?: never;
-  bgColor?: never;
-  borderColor?: never;
-  items?: never;
-};
-
-type NavItem = SimpleMenuItem | SectionDropdownItem;
 
 const roleLabels: Record<string, string> = {
   admin: "Administrateur",
@@ -101,30 +62,26 @@ const roleLabels: Record<string, string> = {
   processing_agent: "Agent de traitement",
 };
 
-// Fonction pour récupérer le nombre de notifications non lues
-// À adapter selon votre source de données réelle
+const sectionColors: Record<string, { icon: string; bg: string }> = {
+  Distribution: { icon: "text-blue-500", bg: "bg-blue-500/10" },
+  Commercial: { icon: "text-emerald-500", bg: "bg-emerald-500/10" },
+  "Génie civil": { icon: "text-amber-500", bg: "bg-amber-500/10" },
+};
+
 function useUnreadNotificationsCount() {
   const [count, setCount] = useState(0);
   
   useEffect(() => {
-    // Simuler la récupération du nombre de notifications non lues
-    // À remplacer par un appel API réel
     const fetchUnreadCount = async () => {
       try {
-        // Simulation d'un appel API
-        // Dans la réalité, vous feriez : const response = await notificationService.getUnreadCount();
-        const mockUnreadCount = 3; // À remplacer par les données réelles
+        const mockUnreadCount = 3;
         setCount(mockUnreadCount);
       } catch (error) {
-        console.error("Erreur lors de la récupération des notifications:", error);
+        console.error("Erreur:", error);
       }
     };
-    
     fetchUnreadCount();
-    
-    // Optionnel: écouter les mises à jour en temps réel (WebSocket, polling, etc.)
-    const interval = setInterval(fetchUnreadCount, 30000); // Rafraîchir toutes les 30 secondes
-    
+    const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
   }, []);
   
@@ -135,11 +92,9 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { user, logout, hasPermission } = useAuth();
   const { t } = useI18n();
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
   const unreadNotificationsCount = useUnreadNotificationsCount();
 
-  const mainNavItems: NavItem[] = [
+  const mainNavItems = [
     {
       title: t("nav.dashboard"),
       url: "/dashboard",
@@ -149,125 +104,51 @@ export function AppSidebar() {
     {
       title: "Distribution",
       icon: Zap,
-      type: "section-dropdown",
-      color: "text-blue-500",
-      bgColor: "bg-blue-500/10",
-      borderColor: "border-l-blue-500",
       items: [
         {
           title: "Traitement",
           icon: Database,
-          permission: "view:processing",
           items: [
-            {
-              title: t("nav.duplicates"),
-              url: "/processing/duplicates",
-              icon: Copy,
-            },
-            {
-              title: t("nav.differences"),
-              url: "/processing/differences",
-              icon: GitCompare,
-            },
-            {
-              title: t("nav.newKobo"),
-              url: "/processing/new-kobo",
-              icon: FilePlus,
-            },
-            {
-              title: t("nav.missingEneo"),
-              url: "/processing/missing-eneo",
-              icon: FileX,
-            },
-            {
-              title: t("nav.complexCases"),
-              url: "/processing/complex",
-              icon: AlertCircle,
-            },
+            { title: t("nav.duplicates"), url: "/distribution/processing/duplicates", icon: Copy },
+            { title: t("nav.differences"), url: "/distribution/processing/differences", icon: GitCompare },
+            { title: t("nav.newKobo"), url: "/distribution/processing/new-kobo", icon: FilePlus },
+            { title: t("nav.missingEneo"), url: "/distribution/processing/missing-eneo", icon: FileX },
+            { title: t("nav.complexCases"), url: "/distribution/processing/complex", icon: AlertCircle },
           ],
         },
-        {
-          title: t("nav.validation"),
-          url: "/validation",
-          icon: CheckSquare,
-          permission: "view:validation",
-        },
+        { title: t("nav.validation"), url: "/distribution/validation", icon: CheckSquare },
       ],
     },
     {
       title: "Commercial",
       icon: DollarSign,
-      type: "section-dropdown",
-      color: "text-emerald-500",
-      bgColor: "bg-emerald-500/10",
-      borderColor: "border-l-emerald-500",
       items: [
         {
           title: "Traitement",
           icon: Database,
-          permission: "view:processing",
           items: [
-            {
-              title: "Vérifications",
-              url: "/processing/duplicates",
-              icon: CheckSquare,
-            },
-            {
-              title: "Cas complexes",
-              url: "/processing/complex",
-              icon: AlertCircle,
-            },
-            {
-              title: "Rejets",
-              url: "/processing/missing-eneo",
-              icon: FileX,
-            },
+            { title: "Vérifications", url: "/commercial/processing/verifications", icon: Eye },
+            { title: "Cas complexes", url: "/commercial/processing/complex", icon: AlertCircle },
+            { title: "Rejets", url: "/commercial/processing/rejets", icon: XCircle },
           ],
         },
-        {
-          title: t("nav.validation"),
-          url: "/validation",
-          icon: CheckSquare,
-          permission: "view:validation",
-        },
+        { title: t("nav.validation"), url: "/commercial/validation", icon: CheckSquare },
       ],
     },
     {
       title: "Génie civil",
       icon: Building2,
-      type: "section-dropdown",
-      color: "text-amber-500",
-      bgColor: "bg-amber-500/10",
-      borderColor: "border-l-amber-500",
       items: [
         {
           title: "Traitement",
           icon: Database,
-          permission: "view:processing",
           items: [
-            {
-              title: "Vérifications",
-              url: "/processing/duplicates",
-              icon: CheckSquare,
-            },
-            {
-              title: "Cas complexes",
-              url: "/processing/complex",
-              icon: AlertCircle,
-            },
-            {
-              title: "Rejets",
-              url: "/processing/missing-eneo",
-              icon: FileX,
-            },
+            { title: "Vérifications", url: "/genie-civil/processing/verifications", icon: Eye },
+            { title: "Cas complexes", url: "/genie-civil/processing/complex", icon: AlertCircle },
+            { title: "Rejets", url: "/genie-civil/processing/rejets", icon: XCircle },
           ],
         },
-        {
-          title: t("nav.validation"),
-          url: "/validation",
-          icon: CheckSquare,
-          permission: "view:validation",
-        },
+        { title: t("nav.validation"), url: "/genie-civil/validation", icon: CheckSquare },
       ],
     },
     {
@@ -280,7 +161,6 @@ export function AppSidebar() {
       title: t("nav.notifications"),
       url: "/notifications",
       icon: Bell,
-      // Pas de permission spécifique pour les notifications
     },
     {
       title: t("nav.map"),
@@ -290,107 +170,76 @@ export function AppSidebar() {
     },
   ];
 
-  const filteredNavItems = mainNavItems
-    .map((item): NavItem | null => {
-      if (item.type === "section-dropdown") {
-        const filteredItems = item.items
-          .map((subItem): SubMenuItem | null => {
-            if (subItem.items) {
-              const filteredSubItems = subItem.items.filter(
-                (subSubItem) => !subItem.permission || hasPermission(subItem.permission)
-              );
-              if (filteredSubItems.length === 0) return null;
-              return {
-                ...subItem,
-                items: filteredSubItems,
-              };
-            }
-            if (!subItem.permission || hasPermission(subItem.permission)) {
-              return subItem;
-            }
-            return null;
-          })
-          .filter((subItem): subItem is SubMenuItem => subItem !== null);
-
-        if (filteredItems.length === 0) return null;
-        return {
-          ...item,
-          items: filteredItems,
-        };
-      }
-      if (!item.permission || hasPermission(item.permission)) {
-        return item;
-      }
-      return null;
-    })
-    .filter((item): item is NavItem => item !== null);
+  const filteredNavItems = mainNavItems.filter(
+    (item) => !item.permission || hasPermission(item.permission)
+  );
 
   const getInitials = (firstName?: string, lastName?: string) => {
     return `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase();
   };
 
-  const isSectionDropdown = (item: NavItem): item is SectionDropdownItem => {
-    return item.type === "section-dropdown";
+  const shouldBeOpen = (item: any) => {
+    if (item.url && pathname === item.url) return true;
+    if (item.items) {
+      return item.items.some((sub: any) => {
+        if (sub.url && pathname === sub.url) return true;
+        if (sub.items) {
+          return sub.items.some((subSub: any) => pathname === subSub.url);
+        }
+        return false;
+      });
+    }
+    return false;
   };
 
   return (
     <Sidebar collapsible="icon" className="border-sidebar-border">
-      {/* Header */}
       <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="font-bold text-sidebar-foreground">TADEC</span>
-          </div>
+        <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+          <span className="font-bold text-sidebar-foreground">TADEC</span>
         </div>
       </SidebarHeader>
 
       <SidebarSeparator />
 
-      {/* Main Navigation */}
       <SidebarContent className="overflow-y-auto flex-1 min-h-0">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="pb-4">
               {filteredNavItems.map((item) => {
-                // Gestion des sections dropdown (Distribution, Commercial, Génie civil)
-                if (isSectionDropdown(item)) {
+                if (item.items) {
+                  const isOpen = shouldBeOpen(item);
+                  const sectionColor = sectionColors[item.title];
+                  
                   return (
-                    <Collapsible
-                      key={item.title}
-                      asChild
-                      defaultOpen={false}
-                      className="group/collapsible mb-2"
-                    >
+                    <Collapsible key={item.title} asChild defaultOpen={isOpen} className="group/collapsible">
                       <SidebarMenuItem>
                         <CollapsibleTrigger asChild>
                           <SidebarMenuButton
                             tooltip={item.title}
-                            className={`transition-all duration-200 ${item.bgColor} hover:${item.bgColor}`}
+                            className={cn(
+                              sectionColor?.bg,
+                            )}
                           >
-                            <item.icon className={`w-4 h-4 shrink-0 ${item.color}`} />
-                            <span className="font-medium truncate flex-1 text-left">{item.title}</span>
+                            <item.icon className={cn("w-4 h-4", sectionColor?.icon)} />
+                            <span>{item.title}</span>
                             <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                           </SidebarMenuButton>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
-                          <SidebarMenuSub className="ml-2 border-l border-sidebar-border pl-2 space-y-1">
+                          <SidebarMenuSub>
                             {item.items.map((subItem) => {
                               if (subItem.items) {
+                                const isSubOpen = shouldBeOpen(subItem);
+                                
                                 return (
-                                  <Collapsible
-                                    key={subItem.title}
-                                    asChild
-                                    defaultOpen={false}
-                                    className="group/sub-collapsible"
-                                  >
+                                  <Collapsible key={subItem.title} asChild defaultOpen={isSubOpen} className="group/sub-collapsible">
                                     <SidebarMenuSubItem>
                                       <CollapsibleTrigger asChild>
-                                        <SidebarMenuSubButton
-                                          className="w-full justify-between hover:bg-sidebar-accent/50 px-2 py-1.5"
-                                        >
-                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <SidebarMenuSubButton className="w-full justify-between">
+                                          <div className="flex items-center gap-2">
                                             <subItem.icon className="w-4 h-4 shrink-0" />
-                                            <span className="truncate">{subItem.title}</span>
+                                            <span>{subItem.title}</span>
                                           </div>
                                           <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/sub-collapsible:rotate-90" />
                                         </SidebarMenuSubButton>
@@ -399,18 +248,10 @@ export function AppSidebar() {
                                         <SidebarMenuSub className="ml-4 space-y-1">
                                           {subItem.items.map((subSubItem) => (
                                             <SidebarMenuSubItem key={subSubItem.url}>
-                                              <SidebarMenuSubButton
-                                                asChild
-                                                isActive={pathname === subSubItem.url}
-                                                className={`transition-colors px-2 py-1.5 ${
-                                                  pathname === subSubItem.url
-                                                    ? `${item.bgColor} ${item.borderColor} border-l-2`
-                                                    : ""
-                                                }`}
-                                              >
-                                                <Link href={subSubItem.url} className="min-w-0">
-                                                  <subSubItem.icon className="w-4 h-4 shrink-0" />
-                                                  <span className="truncate">{subSubItem.title}</span>
+                                              <SidebarMenuSubButton asChild isActive={pathname === subSubItem.url}>
+                                                <Link href={subSubItem.url}>
+                                                  <subSubItem.icon className="w-4 h-4" />
+                                                  <span>{subSubItem.title}</span>
                                                 </Link>
                                               </SidebarMenuSubButton>
                                             </SidebarMenuSubItem>
@@ -421,20 +262,13 @@ export function AppSidebar() {
                                   </Collapsible>
                                 );
                               }
+                              
                               return (
                                 <SidebarMenuSubItem key={subItem.url}>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={pathname === subItem.url}
-                                    className={`transition-colors px-2 py-1.5 ${
-                                      pathname === subItem.url
-                                        ? `${item.bgColor} ${item.borderColor} border-l-2`
-                                        : ""
-                                    }`}
-                                  >
-                                    <Link href={subItem.url!} className="min-w-0">
-                                      <subItem.icon className="w-4 h-4 shrink-0" />
-                                      <span className="truncate">{subItem.title}</span>
+                                  <SidebarMenuSubButton asChild isActive={pathname === subItem.url}>
+                                    <Link href={subItem.url!}>
+                                      <subItem.icon className="w-4 h-4" />
+                                      <span>{subItem.title}</span>
                                     </Link>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
@@ -447,20 +281,18 @@ export function AppSidebar() {
                   );
                 }
 
-                // Gestion des éléments simples (Dashboard, Users, Notifications, Map)
-                // Pour l'élément Notifications, on ajoute un badge avec le nombre de notifications non lues
                 const isNotifications = item.title === t("nav.notifications");
                 
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
-                      <Link href={item.url} className="relative">
-                        <item.icon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{item.title}</span>
+                      <Link href={item.url!} className="relative">
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
                         {isNotifications && unreadNotificationsCount > 0 && (
                           <Badge 
                             variant="destructive" 
-                            className="absolute top-2 right-2 h-5 min-w-5 px-1 flex items-center justify-center rounded-full text-[10px] font-bold"
+                            className="absolute top-4 right-6 translate-x-1/2 -translate-y-1/2 h-5 min-w-5 px-1 flex items-center justify-center rounded-full text-[10px] font-bold"
                           >
                             {unreadNotificationsCount > 99 ? "99+" : unreadNotificationsCount}
                           </Badge>
@@ -477,17 +309,12 @@ export function AppSidebar() {
 
       <SidebarSeparator />
 
-      {/* Footer - User Menu */}
       <SidebarFooter className="p-2 shrink-0">
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton
-                  size="lg"
-                  className="w-full"
-                  tooltip={user?.firstName || "User"}
-                >
+                <SidebarMenuButton size="lg" className="w-full" tooltip={user?.firstName || "User"}>
                   <Avatar className="h-8 w-8 rounded-lg shrink-0">
                     <AvatarFallback className="rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-xs">
                       {getInitials(user?.firstName, user?.lastName)}
@@ -506,9 +333,7 @@ export function AppSidebar() {
               <DropdownMenuContent className="w-56" align="end" side="right" sideOffset={8}>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium">
-                      {user?.firstName} {user?.lastName}
-                    </p>
+                    <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
                     <p className="text-xs text-muted-foreground">{user?.email}</p>
                   </div>
                 </DropdownMenuLabel>
@@ -526,10 +351,7 @@ export function AppSidebar() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   {t("auth.logout")}
                 </DropdownMenuItem>
