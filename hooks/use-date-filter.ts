@@ -20,7 +20,7 @@ export interface UseDateFilterReturn {
 }
 
 export function useDateFilter(): UseDateFilterReturn {
-  const [dateRangeType, setDateRangeType] = useState<DateRangeType>("today");
+  const [dateRangeType, setDateRangeType] = useState<DateRangeType>("week");
   const [customRange, setCustomRange] = useState<DateRange>({
     start: startOfDay(new Date()),
     end: endOfDay(new Date()),

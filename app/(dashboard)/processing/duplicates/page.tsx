@@ -151,11 +151,12 @@ function getEquipmentTypeLabel(table: string): string {
     substation: "Poste source",
     powertransformer: "Transformateur",
     busbar: "Jeu de barres",
-    bay: "Départ",
-    switch: "Disjoncteur",
-    wire: "Ligne",
+    bay: "Cellule",
+    switch: "Organe de coupure",
+    wire: "Câble",
     pole: "Poteau",
-    node: "Nœud réseau"
+    node: "Nœud réseau",
+    feeder: "Départ",
   };
   return labels[table] || table;
 }
