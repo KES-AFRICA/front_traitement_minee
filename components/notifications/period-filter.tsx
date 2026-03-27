@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Clock } from "lucide-react";
 
-export type TimePeriod = "24h" | "7d" | "30d";
+export type TimePeriod = "24h" | "7d" | "30d" | "all";
 
 interface PeriodFilterProps {
   selected: TimePeriod;
@@ -21,6 +21,7 @@ const periodLabels: Record<TimePeriod, { fr: string; en: string }> = {
   "24h": { fr: "Dernières 24h", en: "Last 24 hours" },
   "7d": { fr: "7 derniers jours", en: "Last 7 days" },
   "30d": { fr: "30 derniers jours", en: "Last 30 days" },
+  "all": { fr: "Toutes les notifications", en : "All notifications"}
 };
 
 export function PeriodFilter({

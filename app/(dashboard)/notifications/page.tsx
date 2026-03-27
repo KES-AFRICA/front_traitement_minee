@@ -1,37 +1,33 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useI18n } from "@/lib/i18n/context";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PeriodFilter, TimePeriod } from "@/components/notifications/period-filter";
-import { NotificationListItem } from "@/components/notifications/notification-list-item";
 import { NotificationDetailView } from "@/components/notifications/notification-detail-view";
 import { NotificationGroup } from "@/components/notifications/notification-group";
-import { ResizableDivider } from "@/components/notifications/resizable-divider";
 import { Notification } from "@/lib/api/types";
-import { mockNotifications } from "@/lib/api/mock-data";
 import { Search, Bell, Check } from "lucide-react";
 import {
-  formatDistanceToNow,
   isToday,
   isYesterday,
   isThisWeek,
   isThisMonth,
 } from "date-fns";
 import { fr, enUS } from "date-fns/locale";
+import { mockNotifications } from "@/lib/api/mock-data";
 
 const getDateGroup = (date: Date, language: string): string => {
   if (isToday(date)) return language === "fr" ? "Aujourd'hui" : "Today";
   if (isYesterday(date)) return language === "fr" ? "Hier" : "Yesterday";
-  if (isThisWeek(date))
-    return language === "fr" ? "Cette semaine" : "This week";
-  if (isThisMonth(date))
-    return language === "fr" ? "Ce mois" : "This month";
+  if (isThisWeek(date)) return language === "fr" ? "Cette semaine" : "This week";
+  if (isThisMonth(date)) return language === "fr" ? "Ce mois" : "This month";
   return language === "fr" ? "Plus ancien" : "Older";
 };
 
+// Modifier pour supporter "all"
 const getTimePeriodMs = (period: TimePeriod): number => {
   switch (period) {
     case "24h":
@@ -40,21 +36,32 @@ const getTimePeriodMs = (period: TimePeriod): number => {
       return 7 * 24 * 60 * 60 * 1000;
     case "30d":
       return 30 * 24 * 60 * 60 * 1000;
+    case "all":
+      return Infinity;
   }
 };
 
 export default function NotificationsPage() {
   const { language } = useI18n();
-  const [notifications, setNotifications] = useState<Notification[]>(
-    mockNotifications
-  );
-  const [selectedNotification, setSelectedNotification] =
-    useState<Notification | null>(notifications[0] || null);
+  
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [timePeriod, setTimePeriod] = useState<TimePeriod>("24h");
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("all"); // ← Changé à "all"
   const [leftWidth, setLeftWidth] = useState(35);
+  const [isLoading, setIsLoading] = useState(true);
 
+  useEffect(() => {
+    if (mockNotifications && mockNotifications.length > 0) {
+      setNotifications(mockNotifications);
+      setSelectedNotification(mockNotifications[0]);
+    }
+    setIsLoading(false);
+  }, []);
+
+  // Modifier le filtre pour gérer "all"
   const periodFiltered = useMemo(() => {
+    if (timePeriod === "all") return notifications;
     const periodMs = getTimePeriodMs(timePeriod);
     const cutoffTime = Date.now() - periodMs;
     return notifications.filter(
@@ -75,10 +82,7 @@ export default function NotificationsPage() {
   const grouped = useMemo(() => {
     const groups: Record<string, Notification[]> = {};
     filtered.forEach((n) => {
-      const dateGroup = getDateGroup(
-        new Date(n.createdAt),
-        language
-      );
+      const dateGroup = getDateGroup(new Date(n.createdAt), language);
       if (!groups[dateGroup]) groups[dateGroup] = [];
       groups[dateGroup].push(n);
     });
@@ -107,15 +111,24 @@ export default function NotificationsPage() {
   };
 
   const handleDelete = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-    if (selectedNotification?.id === id) {
-      setSelectedNotification(
-        notifications.find((n) => n.id !== id) || null
-      );
-    }
+    setNotifications((prev) => {
+      const newNotifications = prev.filter((n) => n.id !== id);
+      if (selectedNotification?.id === id) {
+        setSelectedNotification(newNotifications[0] || null);
+      }
+      return newNotifications;
+    });
   };
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">

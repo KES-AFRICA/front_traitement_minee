@@ -636,6 +636,7 @@ export const mockNotifications: Notification[] = [
     isRead: false,
     createdAt: "2026-03-26T07:30:00Z",
     linkTo: "/processing/duplicates/task-010",
+    isArchived: false
   },
   {
     id: "notif-002",
@@ -645,6 +646,7 @@ export const mockNotifications: Notification[] = [
     isRead: false,
     createdAt: "2026-03-26T14:00:00Z",
     linkTo: "/validation/task-014",
+    isArchived: false
   },
   {
     id: "notif-003",
@@ -654,6 +656,7 @@ export const mockNotifications: Notification[] = [
     isRead: false,
     createdAt: "2026-03-26T11:30:00Z",
     linkTo: "/processing/task-012",
+    isArchived: false
   },
   {
     id: "notif-004",
@@ -663,6 +666,7 @@ export const mockNotifications: Notification[] = [
     isRead: true,
     createdAt: "2026-03-25T17:00:00Z",
     linkTo: "/validation/task-009",
+    isArchived: false
   },
   {
     id: "notif-005",
@@ -672,6 +676,7 @@ export const mockNotifications: Notification[] = [
     isRead: true,
     createdAt: "2026-03-24T18:30:00Z",
     linkTo: "/validation/task-005",
+    isArchived: false
   },
 ];
 
