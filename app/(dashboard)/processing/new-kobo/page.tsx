@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useI18n } from "@/lib/i18n/context";
+import { useAuth } from "@/lib/auth/context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RegionCard } from "@/components/complex-cases/region-card";
@@ -10,7 +11,7 @@ import { DepartureCard } from "@/components/complex-cases/departure-card";
 import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filter";
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
-import { Search, FilePlus, CheckCircle, XCircle, Eye, Trash2, Save } from "lucide-react";
+import { Search, FilePlus, CheckCircle, XCircle, Eye, Trash2, Save, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { 
   eneoRegions, 
@@ -21,6 +22,27 @@ import {
   EneoDeparture,
   AnomalyCase
 } from "@/lib/api/eneo-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { userService } from "@/lib/api/services/users";
+import { User, UserRole } from "@/lib/api/types";
+import { formatDateTime, formatDateShort, formatRelativeDate } from "@/lib/utils/date";
 
 type ViewLevel = "regions" | "zones" | "departures" | "newData";
 
@@ -34,6 +56,8 @@ interface NewDataRecord {
   description: string;
   submissionDate: string;
   validationStatus: "pending" | "reviewing" | "validated" | "rejected";
+  assignedTo?: string;
+  assignedToName?: string;
   rawAnomaly: AnomalyCase;
   metadata: {
     latitude?: number;
@@ -62,7 +86,7 @@ function getEquipmentTypeLabel(table: string): string {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "Oui" : "Non";
-  if (value instanceof Date) return value.toLocaleString();
+  if (value instanceof Date) return formatDateTime(value, "fr");
   if (typeof value === "object") return JSON.stringify(value).substring(0, 100);
   return String(value);
 }
@@ -120,6 +144,14 @@ function convertAnomalyToNewData(anomaly: AnomalyCase): NewDataRecord | null {
     }
   });
   
+  // Formater la date de soumission
+  let submissionDate = new Date().toISOString();
+  if (record.created_date) {
+    submissionDate = String(record.created_date);
+  } else if (record.submission_date) {
+    submissionDate = String(record.submission_date);
+  }
+  
   return {
     id: anomaly.id,
     code: `${table.toUpperCase()}-${record.m_rid || record.code || "NEW"}`,
@@ -127,11 +159,143 @@ function convertAnomalyToNewData(anomaly: AnomalyCase): NewDataRecord | null {
     table: table,
     title: title,
     description: description,
-    submissionDate: (record.created_date as string)?.split('T')[0] || new Date().toISOString().split('T')[0],
+    submissionDate: submissionDate,
     validationStatus: "pending",
+    assignedTo: undefined,
+    assignedToName: undefined,
     rawAnomaly: anomaly,
     metadata: metadata,
   };
+}
+
+// Composant pour le dialogue d'assignation
+function AssignDialog({ 
+  isOpen, 
+  onClose, 
+  onAssign,
+  record,
+  processingAgents,
+  isAssigning
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (recordId: string, agentId: string, agentName: string) => void;
+  record: NewDataRecord | null;
+  processingAgents: User[];
+  isAssigning: boolean;
+}) {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const { t } = useI18n();
+
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const handleAssign = () => {
+    if (!selectedAgentId) {
+      toast.warning("Veuillez sélectionner un agent");
+      return;
+    }
+    const selectedAgent = processingAgents.find(agent => agent.id === selectedAgentId);
+    if (selectedAgent && record) {
+      onAssign(record.id, selectedAgentId, `${selectedAgent.firstName} ${selectedAgent.lastName}`);
+    }
+  };
+
+  if (!record) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCheck className="h-5 w-5 text-primary" />
+            Assigner un agent
+          </DialogTitle>
+          <DialogDescription>
+            Assignez cette nouvelle donnée à un agent de traitement pour validation.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Équipement concerné</Label>
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <p className="font-mono text-sm font-medium">{record.code}</p>
+              <p className="font-medium text-sm mt-1">{record.title}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Type: {record.type}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Détecté le: {formatDateTime(record.submissionDate, "fr")}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agent">Sélectionner un agent de traitement</Label>
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger id="agent" className="w-full">
+                <SelectValue placeholder="Choisir un agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {processingAgents.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Aucun agent disponible
+                  </SelectItem>
+                ) : (
+                  processingAgents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                       <div className="flex items-center gap-2 cursor-pointer">
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getInitials(agent.firstName, agent.lastName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>
+                          {agent.firstName} {agent.lastName}
+                        </span>
+                        <div className="ml-2 py-1 px-2 border rounded-md  text-xs">
+                          {agent.company}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="flex gap-2 sm:gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+            disabled={isAssigning}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={handleAssign}
+            disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
+            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isAssigning ? (
+              <>
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Assignation...
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-4 w-4" />
+                Assigner
+              </>
+            )}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // Composant pour afficher les nouvelles données
@@ -141,7 +305,8 @@ function NewDataTable({
   onKeep, 
   onDelete, 
   onReview,
-  onBulkAction 
+  onBulkAction,
+  onAssign
 }: { 
   records: NewDataRecord[];
   onView: (record: NewDataRecord) => void;
@@ -149,6 +314,7 @@ function NewDataTable({
   onDelete: (record: NewDataRecord) => void;
   onReview: (record: NewDataRecord) => void;
   onBulkAction: (ids: string[], action: string) => void;
+  onAssign: (record: NewDataRecord) => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -177,7 +343,8 @@ function NewDataTable({
     record.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     record.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     record.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.description.toLowerCase().includes(searchTerm.toLowerCase())
+    record.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (record.assignedToName && record.assignedToName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleSelectAll = () => {
@@ -210,14 +377,14 @@ function NewDataTable({
           <div className="flex gap-2">
             <button
               onClick={() => onBulkAction(selectedIds, "keep")}
-              className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-1"
+              className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all duration-200 cursor-pointer flex items-center gap-1"
             >
               <CheckCircle className="h-3 w-3" />
               Intégrer ({selectedIds.length})
             </button>
             <button
               onClick={() => onBulkAction(selectedIds, "delete")}
-              className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600 flex items-center gap-1"
+              className="px-3 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-200 cursor-pointer flex items-center gap-1"
             >
               <Trash2 className="h-3 w-3" />
               Supprimer ({selectedIds.length})
@@ -227,7 +394,7 @@ function NewDataTable({
       </div>
 
       <div className="border rounded-lg overflow-x-auto">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-225">
           <thead className="bg-muted/50">
             <tr className="border-b">
               <th className="w-8 p-3">
@@ -235,13 +402,13 @@ function NewDataTable({
                   type="checkbox"
                   checked={selectedIds.length === filteredRecords.length && filteredRecords.length > 0}
                   onChange={handleSelectAll}
-                  className="rounded border-gray-300"
+                  className="rounded border-gray-300 cursor-pointer"
                 />
               </th>
               <th className="text-left p-3 font-medium">Code / Équipement</th>
               <th className="text-left p-3 font-medium">Type</th>
-              <th className="text-left p-3 font-medium">Description</th>
               <th className="text-left p-3 font-medium">Détecté le</th>
+              <th className="text-left p-3 font-medium">Assigné à</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
              </tr>
@@ -254,38 +421,60 @@ function NewDataTable({
                     type="checkbox"
                     checked={selectedIds.includes(record.id)}
                     onChange={() => handleSelect(record.id)}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 cursor-pointer"
                   />
-                 </td>
+                </td>
                 <td className="p-3">
                   <div className="font-mono text-sm">{record.code}</div>
                   <div className="font-medium text-sm mt-1">{record.title}</div>
-                 </td>
+                </td>
                 <td className="p-3">
                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                     {record.type}
                   </span>
-                 </td>
-                <td className="p-3 max-w-xs">
-                  <p className="text-sm text-muted-foreground truncate">{record.description}</p>
-                 </td>
-                <td className="p-3 text-sm">{record.submissionDate}</td>
+                </td>
+                <td className="p-3 text-sm">
+                  {formatDateTime(record.submissionDate, "fr")}
+                </td>
+                <td className="p-3">
+                  {record.assignedToName ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-xs bg-purple-100 text-purple-700">
+                          {record.assignedToName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{record.assignedToName}</span>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">Non assigné</span>
+                  )}
+                </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(record.validationStatus)}`}>
                     {getStatusLabel(record.validationStatus)}
                   </span>
-                 </td>
+                </td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
                       onClick={() => onView(record)}
-                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1 cursor-pointer"
+                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-blue-50/50"
+                      title="Voir les détails"
                     >
                       <Eye className="h-3 w-3" />
                       Voir
                     </button>
+                    <button
+                      onClick={() => onAssign(record)}
+                      className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-purple-50/50"
+                      title="Assigner à un agent"
+                    >
+                      <UserCheck className="h-3 w-3" />
+                      Assigner
+                    </button>
                   </div>
-                 </td>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -357,23 +546,34 @@ function NewDataDetailModal({
             <FilePlus className="h-5 w-5 text-green-600" />
             Nouvel équipement détecté
           </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 cursor-pointer">
             ✕
           </button>
         </div>
+
+        {/* Agent assigné */}
+        {record.assignedToName && (
+          <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-medium text-purple-700">Assigné à:</span>
+              <span className="text-sm text-purple-900">{record.assignedToName}</span>
+            </div>
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex gap-3 py-2 border-t">
           <button
             onClick={() => onKeep(record)}
-            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
           >
             <Save className="h-4 w-4" />
             Intégrer à la base de référence
           </button>
           <button
             onClick={() => onDelete(record)}
-            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"
+            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
           >
             <Trash2 className="h-4 w-4" />
             Supprimer de la collecte
@@ -399,7 +599,7 @@ function NewDataDetailModal({
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Date de détection
               </label>
-              <p>{record.submissionDate}</p>
+              <p>{formatDateTime(record.submissionDate, "fr")}</p>
             </div>
             {record.rawAnomaly.feederName && (
               <div>
@@ -444,6 +644,7 @@ function NewDataDetailModal({
 
 export default function NewDataPage() {
   const { t } = useI18n();
+  const { hasPermission } = useAuth();
   
   // Navigation state
   const [viewLevel, setViewLevel] = useState<ViewLevel>("regions");
@@ -458,10 +659,31 @@ export default function NewDataPage() {
   // Modal state
   const [selectedRecord, setSelectedRecord] = useState<NewDataRecord | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [recordToAssign, setRecordToAssign] = useState<NewDataRecord | null>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [processingAgents, setProcessingAgents] = useState<User[]>([]);
+  const [newDataRecordsState, setNewDataRecords] = useState<NewDataRecord[]>([]);
+
+  // Récupérer les agents de traitement
+  const fetchProcessingAgents = async () => {
+    try {
+      const response = await userService.getUsers({ role: "processing_agent" }, { pageSize: 100 });
+      if (response.data) {
+        setProcessingAgents(response.data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch processing agents:", error);
+      toast.error("Impossible de charger la liste des agents");
+    }
+  };
 
   // Récupérer les vraies nouvelles données pour le départ sélectionné
-  const newDataRecords = useMemo(() => {
-    if (!selectedDeparture) return [];
+  useEffect(() => {
+    if (!selectedDeparture) {
+      setNewDataRecords([]);
+      return;
+    }
     
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "new");
     
@@ -473,21 +695,22 @@ export default function NewDataPage() {
       }
     }
     
-    return records;
+    setNewDataRecords(records);
   }, [selectedDeparture]);
 
   // Filter new data records
   const filteredRecords = useMemo(() => {
-    if (!searchQuery) return newDataRecords;
+    if (!searchQuery) return newDataRecordsState;
     const query = searchQuery.toLowerCase();
-    return newDataRecords.filter(
+    return newDataRecordsState.filter(
       (record) =>
         record.code.toLowerCase().includes(query) ||
         record.title.toLowerCase().includes(query) ||
         record.type.toLowerCase().includes(query) ||
-        record.description.toLowerCase().includes(query)
+        record.description.toLowerCase().includes(query) ||
+        (record.assignedToName && record.assignedToName.toLowerCase().includes(query))
     );
-  }, [newDataRecords, searchQuery]);
+  }, [newDataRecordsState, searchQuery]);
 
   // Calculer les stats globales
   const globalStats = useMemo(() => {
@@ -645,11 +868,17 @@ export default function NewDataPage() {
   const handleKeepRecord = (record: NewDataRecord) => {
     toast.success(`Équipement ${record.title} intégré à la base de référence`);
     setIsDetailModalOpen(false);
+    setNewDataRecords(prev => prev.map(r => 
+      r.id === record.id ? { ...r, validationStatus: "validated" as const } : r
+    ));
   };
 
   const handleDeleteRecord = (record: NewDataRecord) => {
     toast.info(`Équipement ${record.title} supprimé de la collecte`);
     setIsDetailModalOpen(false);
+    setNewDataRecords(prev => prev.map(r => 
+      r.id === record.id ? { ...r, validationStatus: "rejected" as const } : r
+    ));
   };
 
   const handleReviewRecord = (record: NewDataRecord) => {
@@ -660,6 +889,40 @@ export default function NewDataPage() {
   const handleBulkAction = (recordIds: string[], action: string) => {
     const actionLabel = action === "keep" ? "intégrés" : "supprimés";
     toast.success(`${recordIds.length} équipement(s) ${actionLabel}`);
+    const newStatus = action === "keep" ? "validated" : "rejected";
+    setNewDataRecords(prev => prev.map(r => 
+      recordIds.includes(r.id) ? { ...r, validationStatus: newStatus } : r
+    ));
+  };
+
+  const handleOpenAssignDialog = async (record: NewDataRecord) => {
+    setRecordToAssign(record);
+    await fetchProcessingAgents();
+    setIsAssignDialogOpen(true);
+  };
+
+  const handleAssignRecord = async (recordId: string, agentId: string, agentName: string) => {
+    setIsAssigning(true);
+    try {
+      // Simuler un appel API pour assigner la donnée
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Mettre à jour l'état local
+      setNewDataRecords(prev => prev.map(record => 
+        record.id === recordId 
+          ? { ...record, assignedTo: agentId, assignedToName: agentName, validationStatus: "pending" as const }
+          : record
+      ));
+      
+      toast.success(`Nouvelle donnée assignée à ${agentName}`);
+      setIsAssignDialogOpen(false);
+      setRecordToAssign(null);
+    } catch (error) {
+      console.error("Failed to assign record:", error);
+      toast.error("Erreur lors de l'assignation");
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   return (
@@ -845,19 +1108,32 @@ export default function NewDataPage() {
                 onDelete={handleDeleteRecord}
                 onReview={handleReviewRecord}
                 onBulkAction={handleBulkAction}
+                onAssign={handleOpenAssignDialog}
               />
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Modal */}
+      {/* Modals */}
       <NewDataDetailModal
         record={selectedRecord}
         isOpen={isDetailModalOpen}
         onClose={() => setIsDetailModalOpen(false)}
         onKeep={handleKeepRecord}
         onDelete={handleDeleteRecord}
+      />
+
+      <AssignDialog
+        isOpen={isAssignDialogOpen}
+        onClose={() => {
+          setIsAssignDialogOpen(false);
+          setRecordToAssign(null);
+        }}
+        onAssign={handleAssignRecord}
+        record={recordToAssign}
+        processingAgents={processingAgents}
+        isAssigning={isAssigning}
       />
     </div>
   );

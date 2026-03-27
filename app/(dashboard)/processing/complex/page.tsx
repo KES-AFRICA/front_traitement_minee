@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useI18n } from "@/lib/i18n/context";
+import { useAuth } from "@/lib/auth/context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RegionCard } from "@/components/complex-cases/region-card";
@@ -10,7 +11,7 @@ import { DepartureCard } from "@/components/complex-cases/departure-card";
 import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filter";
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
-import { AlertCircle, AlertTriangle, Search, FileWarning, MapPin, HelpCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, Search, FileWarning, MapPin, HelpCircle, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { 
   eneoRegions, 
@@ -21,6 +22,27 @@ import {
   EneoDeparture,
   AnomalyCase
 } from "@/lib/api/eneo-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { userService } from "@/lib/api/services/users";
+import { User, UserRole } from "@/lib/api/types";
+import { formatDateTime, formatDateShort, formatRelativeDate } from "@/lib/utils/date";
 
 type ViewLevel = "regions" | "zones" | "departures" | "complexes";
 
@@ -34,8 +56,9 @@ interface ComplexCase {
   description: string;
   reason: string;
   location?: string;
-  detectedAt: string;
   status: "pending" | "analyzing" | "resolved" | "ignored";
+  assignedTo?: string;
+  assignedToName?: string;
   rawAnomaly: AnomalyCase;
   metadata: {
     [key: string]: unknown;
@@ -62,7 +85,7 @@ function getEquipmentTypeLabel(table: string): string {
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "Oui" : "Non";
-  if (value instanceof Date) return value.toLocaleString();
+  if (value instanceof Date) return formatDateTime(value, "fr");
   if (typeof value === "object") return JSON.stringify(value).substring(0, 100);
   return String(value);
 }
@@ -140,11 +163,139 @@ function convertAnomalyToComplex(anomaly: AnomalyCase): ComplexCase | null {
     description: description,
     reason: reason,
     location: location,
-    detectedAt: new Date().toISOString().split('T')[0],
     status: "pending",
+    assignedTo: undefined,
+    assignedToName: undefined,
     rawAnomaly: anomaly,
     metadata: metadata,
   };
+}
+
+// Composant pour le dialogue d'assignation
+function AssignDialog({ 
+  isOpen, 
+  onClose, 
+  onAssign,
+  caseItem,
+  processingAgents,
+  isAssigning
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (caseId: string, agentId: string, agentName: string) => void;
+  caseItem: ComplexCase | null;
+  processingAgents: User[];
+  isAssigning: boolean;
+}) {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const { t } = useI18n();
+
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const handleAssign = () => {
+    if (!selectedAgentId) {
+      toast.warning("Veuillez sélectionner un agent");
+      return;
+    }
+    const selectedAgent = processingAgents.find(agent => agent.id === selectedAgentId);
+    if (selectedAgent && caseItem) {
+      onAssign(caseItem.id, selectedAgentId, `${selectedAgent.firstName} ${selectedAgent.lastName}`);
+    }
+  };
+
+  if (!caseItem) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCheck className="h-5 w-5 text-primary" />
+            Assigner un agent
+          </DialogTitle>
+          <DialogDescription>
+            Assignez ce cas complexe à un agent de traitement pour analyse approfondie.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Cas concerné</Label>
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <p className="font-mono text-sm font-medium">{caseItem.code}</p>
+              <p className="font-medium text-sm mt-1">{caseItem.name}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Type: {caseItem.type}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agent">Sélectionner un agent de traitement</Label>
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger id="agent" className="w-full">
+                <SelectValue placeholder="Choisir un agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {processingAgents.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Aucun agent disponible
+                  </SelectItem>
+                ) : (
+                  processingAgents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      <div className="flex items-center gap-2 cursor-pointe ">
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getInitials(agent.firstName, agent.lastName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>
+                          {agent.firstName} {agent.lastName}
+                        </span>
+                        <div className="ml-2 py-1 px-2 border rounded-md  text-xs">
+                          {agent.company}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="flex gap-2 sm:gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+            disabled={isAssigning}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={handleAssign}
+            disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
+            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isAssigning ? (
+              <>
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Assignation...
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-4 w-4" />
+                Assigner
+              </>
+            )}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // Composant pour afficher les cas complexes
@@ -154,7 +305,8 @@ function ComplexCasesTable({
   onAnalyze,
   onResolve,
   onIgnore,
-  onBulkAction 
+  onBulkAction,
+  onAssign
 }: { 
   cases: ComplexCase[];
   onView: (case_: ComplexCase) => void;
@@ -162,6 +314,7 @@ function ComplexCasesTable({
   onResolve: (case_: ComplexCase) => void;
   onIgnore: (case_: ComplexCase) => void;
   onBulkAction: (ids: string[], action: string) => void;
+  onAssign: (case_: ComplexCase) => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -190,7 +343,8 @@ function ComplexCasesTable({
     c.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.reason.toLowerCase().includes(searchTerm.toLowerCase())
+    c.reason.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.assignedToName && c.assignedToName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleSelectAll = () => {
@@ -223,13 +377,13 @@ function ComplexCasesTable({
           <div className="flex gap-2">
             <button
               onClick={() => onBulkAction(selectedIds, "analyze")}
-              className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+              className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 cursor-pointer"
             >
               Analyser ({selectedIds.length})
             </button>
             <button
               onClick={() => onBulkAction(selectedIds, "resolve")}
-              className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600"
+              className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all duration-200 cursor-pointer"
             >
               Résoudre ({selectedIds.length})
             </button>
@@ -238,7 +392,7 @@ function ComplexCasesTable({
       </div>
 
       <div className="border rounded-lg overflow-x-auto">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-[1000px]">
           <thead className="bg-muted/50">
             <tr className="border-b">
               <th className="w-8 p-3">
@@ -246,16 +400,16 @@ function ComplexCasesTable({
                   type="checkbox"
                   checked={selectedIds.length === filteredCases.length && filteredCases.length > 0}
                   onChange={handleSelectAll}
-                  className="rounded border-gray-300"
+                  className="rounded border-gray-300 cursor-pointer"
                 />
               </th>
               <th className="text-left p-3 font-medium">Code / Équipement</th>
               <th className="text-left p-3 font-medium">Type</th>
-              <th className="text-left p-3 font-medium">Raison du cas complexe</th>
               <th className="text-left p-3 font-medium">Localisation</th>
+              <th className="text-left p-3 font-medium">Assigné à</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
-             </tr>
+            </tr>
           </thead>
           <tbody>
             {filteredCases.map((case_) => (
@@ -265,53 +419,69 @@ function ComplexCasesTable({
                     type="checkbox"
                     checked={selectedIds.includes(case_.id)}
                     onChange={() => handleSelect(case_.id)}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 cursor-pointer"
                   />
-                 </td>
+                </td>
                 <td className="p-3">
                   <div className="font-mono text-sm">{case_.code}</div>
                   <div className="font-medium text-sm mt-1">{case_.name}</div>
-                 </td>
+                </td>
                 <td className="p-3">
                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
                     {case_.type}
                   </span>
-                 </td>
-                <td className="p-3 max-w-md">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-muted-foreground">{case_.reason}</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">{case_.description}</p>
-                 </td>
+                </td>
                 <td className="p-3">
                   {case_.location ? (
                     <div className="flex items-center gap-1 text-sm">
                       <MapPin className="h-3 w-3 text-muted-foreground" />
-                      <span className="truncate max-w-[150px]">{case_.location}</span>
+                      <span className="truncate max-w-37.5">{case_.location}</span>
                     </div>
                   ) : (
                     <span className="text-muted-foreground text-sm">—</span>
                   )}
-                 </td>
+                </td>
+                <td className="p-3">
+                  {case_.assignedToName ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-xs bg-purple-100 text-purple-700">
+                          {case_.assignedToName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{case_.assignedToName}</span>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">Non assigné</span>
+                  )}
+                </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(case_.status)}`}>
                     {getStatusLabel(case_.status)}
                   </span>
-                 </td>
+                </td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
                       onClick={() => onView(case_)}
-                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1"
+                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-blue-50/50"
+                      title="Voir les détails"
                     >
                       <AlertCircle className="h-3 w-3" />
                       Détails
                     </button>
+                    <button
+                      onClick={() => onAssign(case_)}
+                      className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-purple-50/50"
+                      title="Assigner à un agent"
+                    >
+                      <UserCheck className="h-3 w-3" />
+                      Assigner
+                    </button>
                     {case_.status === "pending" && (
                       <button
                         onClick={() => onAnalyze(case_)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
+                        className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm bg-blue-50/50"
                       >
                         Analyser
                       </button>
@@ -319,13 +489,13 @@ function ComplexCasesTable({
                     {case_.status === "analyzing" && (
                       <button
                         onClick={() => onResolve(case_)}
-                        className="text-green-600 hover:text-green-800 text-sm"
+                        className="text-green-600 hover:text-green-800 hover:bg-green-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm bg-green-50/50"
                       >
                         Résoudre
                       </button>
                     )}
                   </div>
-                 </td>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -407,12 +577,23 @@ function ComplexCaseDetailModal({
           </button>
         </div>
 
+        {/* Agent assigné */}
+        {case_.assignedToName && (
+          <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-medium text-purple-700">Assigné à:</span>
+              <span className="text-sm text-purple-900">{case_.assignedToName}</span>
+            </div>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex gap-3 pt-4 border-t">
           {case_.status === "pending" && (
             <button
               onClick={() => onAnalyze(case_)}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
             >
               <AlertCircle className="h-4 w-4" />
               Démarrer l'analyse
@@ -422,14 +603,14 @@ function ComplexCaseDetailModal({
             <>
               <button
                 onClick={() => onResolve(case_)}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
               >
                 <AlertCircle className="h-4 w-4" />
                 Marquer comme résolu
               </button>
               <button
                 onClick={() => onIgnore(case_)}
-                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-all duration-200 cursor-pointer flex items-center justify-center gap-2"
               >
                 Ignorer
               </button>
@@ -437,7 +618,7 @@ function ComplexCaseDetailModal({
           )}
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 mt-4">
           {/* Informations générales */}
           <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
             <div>
@@ -528,6 +709,7 @@ function ComplexCaseDetailModal({
 
 export default function ComplexCasesPage() {
   const { t } = useI18n();
+  const { hasPermission } = useAuth();
   
   // Navigation state
   const [viewLevel, setViewLevel] = useState<ViewLevel>("regions");
@@ -542,10 +724,31 @@ export default function ComplexCasesPage() {
   // Modal state
   const [selectedCase, setSelectedCase] = useState<ComplexCase | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [caseToAssign, setCaseToAssign] = useState<ComplexCase | null>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [processingAgents, setProcessingAgents] = useState<User[]>([]);
+  const [complexCasesState, setComplexCases] = useState<ComplexCase[]>([]);
 
-  // Récupérer les vraies cas complexes pour le départ sélectionné
-  const complexCases = useMemo(() => {
-    if (!selectedDeparture) return [];
+  // Récupérer les agents de traitement
+  const fetchProcessingAgents = async () => {
+    try {
+      const response = await userService.getUsers({ role: "processing_agent" }, { pageSize: 100 });
+      if (response.data) {
+        setProcessingAgents(response.data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch processing agents:", error);
+      toast.error("Impossible de charger la liste des agents");
+    }
+  };
+
+  // Récupérer les cas complexes pour le départ sélectionné
+  useEffect(() => {
+    if (!selectedDeparture) {
+      setComplexCases([]);
+      return;
+    }
     
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "complex");
     
@@ -557,21 +760,22 @@ export default function ComplexCasesPage() {
       }
     }
     
-    return cases;
+    setComplexCases(cases);
   }, [selectedDeparture]);
 
   // Filter complex cases
   const filteredCases = useMemo(() => {
-    if (!searchQuery) return complexCases;
+    if (!searchQuery) return complexCasesState;
     const query = searchQuery.toLowerCase();
-    return complexCases.filter(
+    return complexCasesState.filter(
       (c) =>
         c.code.toLowerCase().includes(query) ||
         c.type.toLowerCase().includes(query) ||
         c.name.toLowerCase().includes(query) ||
-        c.reason.toLowerCase().includes(query)
+        c.reason.toLowerCase().includes(query) ||
+        (c.assignedToName && c.assignedToName.toLowerCase().includes(query))
     );
-  }, [complexCases, searchQuery]);
+  }, [complexCasesState, searchQuery]);
 
   // Calculer les stats globales
   const globalStats = useMemo(() => {
@@ -732,20 +936,61 @@ export default function ComplexCasesPage() {
   const handleAnalyzeCase = (case_: ComplexCase) => {
     toast.success(`Analyse lancée pour ${case_.code}`);
     setIsDetailModalOpen(false);
+    setComplexCases(prev => prev.map(c => 
+      c.id === case_.id ? { ...c, status: "analyzing" as const } : c
+    ));
   };
 
   const handleResolveCase = (case_: ComplexCase) => {
     toast.success(`Cas complexe ${case_.code} résolu`);
     setIsDetailModalOpen(false);
+    setComplexCases(prev => prev.map(c => 
+      c.id === case_.id ? { ...c, status: "resolved" as const } : c
+    ));
   };
 
   const handleIgnoreCase = (case_: ComplexCase) => {
     toast.info(`Cas complexe ${case_.code} ignoré`);
     setIsDetailModalOpen(false);
+    setComplexCases(prev => prev.map(c => 
+      c.id === case_.id ? { ...c, status: "ignored" as const } : c
+    ));
   };
 
   const handleBulkAction = (caseIds: string[], action: string) => {
     toast.success(`${caseIds.length} cas(s) ${action === "analyze" ? "en cours d'analyse" : "résolus"}`);
+    const newStatus = action === "analyze" ? "analyzing" : "resolved";
+    setComplexCases(prev => prev.map(c => 
+      caseIds.includes(c.id) ? { ...c, status: newStatus } : c
+    ));
+  };
+
+  const handleOpenAssignDialog = async (case_: ComplexCase) => {
+    setCaseToAssign(case_);
+    await fetchProcessingAgents();
+    setIsAssignDialogOpen(true);
+  };
+
+  const handleAssignCase = async (caseId: string, agentId: string, agentName: string) => {
+    setIsAssigning(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setComplexCases(prev => prev.map(c => 
+        c.id === caseId 
+          ? { ...c, assignedTo: agentId, assignedToName: agentName, status: "pending" as const }
+          : c
+      ));
+      
+      toast.success(`Cas complexe assigné à ${agentName}`);
+      setIsAssignDialogOpen(false);
+      setCaseToAssign(null);
+    } catch (error) {
+      console.error("Failed to assign case:", error);
+      toast.error("Erreur lors de l'assignation");
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   return (
@@ -930,13 +1175,14 @@ export default function ComplexCasesPage() {
                 onResolve={handleResolveCase}
                 onIgnore={handleIgnoreCase}
                 onBulkAction={handleBulkAction}
+                onAssign={handleOpenAssignDialog}
               />
             </CardContent>
           </Card>
         </div>
       )}
 
-      {/* Modal */}
+      {/* Modals */}
       <ComplexCaseDetailModal
         case_={selectedCase}
         isOpen={isDetailModalOpen}
@@ -944,6 +1190,18 @@ export default function ComplexCasesPage() {
         onAnalyze={handleAnalyzeCase}
         onResolve={handleResolveCase}
         onIgnore={handleIgnoreCase}
+      />
+
+      <AssignDialog
+        isOpen={isAssignDialogOpen}
+        onClose={() => {
+          setIsAssignDialogOpen(false);
+          setCaseToAssign(null);
+        }}
+        onAssign={handleAssignCase}
+        caseItem={caseToAssign}
+        processingAgents={processingAgents}
+        isAssigning={isAssigning}
       />
     </div>
   );

@@ -357,7 +357,7 @@ export default function UsersPage() {
         </div>
         <Select
           value={roleFilter}
-          onValueChange={(value) => setRoleFilter(value as UserRole | "all")}
+          onValueChange={(value: string) => setRoleFilter(value as UserRole | "all")}
         >
           <SelectTrigger className="w-45">
             <SelectValue placeholder={t("common.role")} />
@@ -668,7 +668,7 @@ function UserForm({ formData, setFormData, t }: UserFormProps) {
               {/* w-full force le trigger à occuper toute la cellule */}
               <Select
                 value={formData.company}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setFormData((prev) => ({ ...prev, company: value as Company }))
                 }
               >
@@ -689,7 +689,7 @@ function UserForm({ formData, setFormData, t }: UserFormProps) {
               <Label htmlFor="role">{t("common.role")}</Label>
               <Select
                 value={formData.role}
-                onValueChange={(value) =>
+                onValueChange={(value: string) =>
                   setFormData((prev) => ({ ...prev, role: value as UserRole }))
                 }
               >

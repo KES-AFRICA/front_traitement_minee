@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useI18n } from "@/lib/i18n/context";
+import { useAuth } from "@/lib/auth/context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RegionCard } from "@/components/complex-cases/region-card";
@@ -10,7 +11,7 @@ import { DepartureCard } from "@/components/complex-cases/departure-card";
 import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filter";
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
-import { GitCompare, Search, CheckCircle, XCircle, Eye } from "lucide-react";
+import { GitCompare, Search, CheckCircle, XCircle, Eye, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { 
   eneoRegions, 
@@ -22,6 +23,26 @@ import {
   AnomalyCase,
   DivergentField
 } from "@/lib/api/eneo-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { userService } from "@/lib/api/services/users";
+import { User, UserRole } from "@/lib/api/types";
 
 // Types pour les divergences
 type DivergenceSeverity = "critical" | "high" | "medium" | "low";
@@ -38,6 +59,7 @@ interface Divergence {
   status: DivergenceStatus;
   detectedAt: string;
   assignedTo?: string;
+  assignedToName?: string;
   departureCode?: string;
   // Données de comparaison
   layer1Record: Record<string, unknown> | null;
@@ -90,6 +112,7 @@ function convertAnomalyToDivergence(anomaly: AnomalyCase): Divergence | null {
     status: "pending",
     detectedAt: new Date().toISOString().split('T')[0],
     assignedTo: undefined,
+    assignedToName: undefined,
     departureCode: anomaly.feederName,
     layer1Record: anomaly.layer1Record,
     layer2Record: anomaly.layer2Record,
@@ -149,6 +172,160 @@ function getEquipmentTypeLabel(table: string): string {
   return labels[table] || table;
 }
 
+// Composant pour le dialogue d'assignation
+function AssignDialog({ 
+  isOpen, 
+  onClose, 
+  onAssign,
+  divergence,
+  processingAgents,
+  isAssigning
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (divergenceId: string, agentId: string, agentName: string) => void;
+  divergence: Divergence | null;
+  processingAgents: User[];
+  isAssigning: boolean;
+}) {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const { t } = useI18n();
+
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const handleAssign = () => {
+    if (!selectedAgentId) {
+      toast.warning("Veuillez sélectionner un agent");
+      return;
+    }
+    const selectedAgent = processingAgents.find(agent => agent.id === selectedAgentId);
+    if (selectedAgent && divergence) {
+      onAssign(divergence.id, selectedAgentId, `${selectedAgent.firstName} ${selectedAgent.lastName}`);
+    }
+  };
+
+  if (!divergence) return null;
+
+  const getSeverityColor = (severity: DivergenceSeverity) => {
+    switch (severity) {
+      case "critical": return "text-red-600";
+      case "high": return "text-orange-600";
+      case "medium": return "text-yellow-600";
+      case "low": return "text-blue-600";
+      default: return "text-gray-600";
+    }
+  };
+
+  const getSeverityLabel = (severity: DivergenceSeverity) => {
+    switch (severity) {
+      case "critical": return "Critique";
+      case "high": return "Élevée";
+      case "medium": return "Moyenne";
+      case "low": return "Faible";
+      default: return severity;
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCheck className="h-5 w-5 text-primary" />
+            Assigner un agent
+          </DialogTitle>
+          <DialogDescription>
+            Assignez cette divergence à un agent de traitement pour analyse.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Divergence concernée</Label>
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <p className="font-mono text-sm font-medium">{divergence.code}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Type: {divergence.type} | Sévérité: <span className={getSeverityColor(divergence.severity)}>{getSeverityLabel(divergence.severity)}</span>
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {divergence.divergentFields.length} champ(s) divergent(s)
+              </p>
+              {divergence.departureCode && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Départ: {divergence.departureCode}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agent">Sélectionner un agent de traitement</Label>
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger id="agent" className="w-full">
+                <SelectValue placeholder="Choisir un agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {processingAgents.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Aucun agent disponible
+                  </SelectItem>
+                ) : (
+                  processingAgents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      <div className="flex items-center gap-2 cursor-pointer">
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getInitials(agent.firstName, agent.lastName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>
+                          {agent.firstName} {agent.lastName}
+                        </span>
+                        <div className="ml-2 py-1 px-2 border rounded-md  text-xs">
+                          {agent.company}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="flex gap-2 sm:gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+            disabled={isAssigning}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={handleAssign}
+            disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
+            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isAssigning ? (
+              <>
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Assignation...
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-4 w-4" />
+                Assigner
+              </>
+            )}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Composant pour comparer les deux enregistrements côte à côte
 function ComparisonView({ 
   divergence, 
@@ -186,7 +363,7 @@ function ComparisonView({
           <div className="flex gap-2">
             <button
               onClick={() => setSelectedAction("accept")}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 cursor-pointer ${
                 selectedAction === "accept" 
                   ? "bg-green-600 text-white" 
                   : "bg-green-100 text-green-700 hover:bg-green-200"
@@ -197,7 +374,7 @@ function ComparisonView({
             </button>
             <button
               onClick={() => setSelectedAction("reject")}
-              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 cursor-pointer ${
                 selectedAction === "reject" 
                   ? "bg-blue-600 text-white" 
                   : "bg-blue-100 text-blue-700 hover:bg-blue-200"
@@ -208,7 +385,7 @@ function ComparisonView({
             </button>
             <button
               onClick={onIgnore}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all duration-200 cursor-pointer flex items-center gap-2"
             >
               <XCircle className="h-4 w-4" />
               Ignorer
@@ -226,13 +403,13 @@ function ComparisonView({
             <div className="flex gap-2 justify-end">
               <button
                 onClick={selectedAction === "accept" ? onAccept : onReject}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all duration-200 cursor-pointer"
               >
                 Confirmer
               </button>
               <button
                 onClick={() => setSelectedAction(null)}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50 transition-all duration-200 cursor-pointer"
               >
                 Annuler
               </button>
@@ -300,7 +477,8 @@ function DivergenceTable({
   onAccept, 
   onReject, 
   onIgnore,
-  onBulkAction 
+  onBulkAction,
+  onAssign
 }: { 
   divergences: Divergence[];
   onView: (divergence: Divergence) => void;
@@ -308,6 +486,7 @@ function DivergenceTable({
   onReject: (divergence: Divergence) => void;
   onIgnore: (divergence: Divergence) => void;
   onBulkAction: (ids: string[], action: string) => void;
+  onAssign: (divergence: Divergence) => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -355,7 +534,8 @@ function DivergenceTable({
   const filteredDivergences = divergences.filter(div => 
     div.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     div.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    div.description.toLowerCase().includes(searchTerm.toLowerCase())
+    div.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (div.assignedToName && div.assignedToName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleSelectAll = () => {
@@ -388,13 +568,13 @@ function DivergenceTable({
           <div className="flex gap-2">
             <button
               onClick={() => onBulkAction(selectedIds, "accept")}
-              className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600"
+              className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all duration-200 cursor-pointer"
             >
               Accepter ({selectedIds.length})
             </button>
             <button
               onClick={() => onBulkAction(selectedIds, "reject")}
-              className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+              className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 cursor-pointer"
             >
               Garder référence ({selectedIds.length})
             </button>
@@ -403,7 +583,7 @@ function DivergenceTable({
       </div>
 
       <div className="border rounded-lg overflow-x-auto">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-[900px]">
           <thead className="bg-muted/50">
             <tr className="border-b">
               <th className="w-8 p-3">
@@ -411,16 +591,16 @@ function DivergenceTable({
                   type="checkbox"
                   checked={selectedIds.length === filteredDivergences.length && filteredDivergences.length > 0}
                   onChange={handleSelectAll}
-                  className="rounded border-gray-300"
+                  className="rounded border-gray-300 cursor-pointer"
                 />
               </th>
               <th className="text-left p-3 font-medium">Code / Équipement</th>
               <th className="text-left p-3 font-medium">Type</th>
               <th className="text-left p-3 font-medium">Champs divergents</th>
-              <th className="text-left p-3 font-medium">Sévérité</th>
+              <th className="text-left p-3 font-medium">Assigné à</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
-             </tr>
+            </tr>
           </thead>
           <tbody>
             {filteredDivergences.map((divergence) => (
@@ -430,15 +610,15 @@ function DivergenceTable({
                     type="checkbox"
                     checked={selectedIds.includes(divergence.id)}
                     onChange={() => handleSelect(divergence.id)}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 cursor-pointer"
                   />
-                 </td>
+                </td>
                 <td className="p-3">
                   <div className="font-mono text-sm">{divergence.code}</div>
                   <div className="text-xs text-muted-foreground mt-1">
                     ID: {divergence.mrid}
                   </div>
-                 </td>
+                </td>
                 <td className="p-3">{divergence.type}</td>
                 <td className="p-3">
                   <div className="space-y-1">
@@ -456,32 +636,50 @@ function DivergenceTable({
                       </div>
                     )}
                   </div>
-                 </td>
+                </td>
                 <td className="p-3">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getSeverityColor(divergence.severity)}`}>
-                    {getSeverityLabel(divergence.severity)}
-                  </span>
-                 </td>
+                  {divergence.assignedToName ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-xs bg-purple-100 text-purple-700">
+                          {divergence.assignedToName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{divergence.assignedToName}</span>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">Non assigné</span>
+                  )}
+                </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(divergence.status)}`}>
                     {getStatusLabel(divergence.status)}
                   </span>
-                 </td>
+                </td>
                 <td className="p-3">
                   <div className="flex gap-2">
                     <button
                       onClick={() => onView(divergence)}
-                      className="text-blue-600 hover:text-blue-800 text-sm flex items-center gap-1 cursor-pointer"
+                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-blue-50/50"
+                      title="Comparer"
                     >
                       <Eye className="h-3 w-3" />
                       Comparer
                     </button>
+                    <button
+                      onClick={() => onAssign(divergence)}
+                      className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-purple-50/50"
+                      title="Assigner à un agent"
+                    >
+                      <UserCheck className="h-3 w-3" />
+                      Assigner
+                    </button>
                   </div>
-                 </td>
-               </tr>
+                </td>
+              </tr>
             ))}
           </tbody>
-         </table>
+        </table>
         {filteredDivergences.length === 0 && (
           <div className="text-center py-12 text-muted-foreground">
             Aucune divergence trouvée pour ce départ
@@ -518,10 +716,20 @@ function DivergenceDetailModal({
             <GitCompare className="h-5 w-5 text-orange-500" />
             Comparaison des données
           </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 cursor-pointer">
             ✕
           </button>
         </div>
+        
+        {divergence.assignedToName && (
+          <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="flex items-center gap-2">
+              <UserCheck className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-medium text-purple-700">Assigné à:</span>
+              <span className="text-sm text-purple-900">{divergence.assignedToName}</span>
+            </div>
+          </div>
+        )}
         
         <ComparisonView 
           divergence={divergence}
@@ -536,6 +744,7 @@ function DivergenceDetailModal({
 
 export default function DivergencesPage() {
   const { t } = useI18n();
+  const { hasPermission } = useAuth();
   
   const [viewLevel, setViewLevel] = useState<ViewLevel>("regions");
   const [selectedRegion, setSelectedRegion] = useState<EneoRegion | null>(null);
@@ -547,10 +756,35 @@ export default function DivergencesPage() {
 
   const [selectedDivergence, setSelectedDivergence] = useState<Divergence | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [divergenceToAssign, setDivergenceToAssign] = useState<Divergence | null>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [processingAgents, setProcessingAgents] = useState<User[]>([]);
+  const [isLoadingAgents, setIsLoadingAgents] = useState(false);
+  const [divergencesState, setDivergences] = useState<Divergence[]>([]);
+
+  // Récupérer les agents de traitement
+  const fetchProcessingAgents = async () => {
+    setIsLoadingAgents(true);
+    try {
+      const response = await userService.getUsers({ role: "processing_agent" }, { pageSize: 100 });
+      if (response.data) {
+        setProcessingAgents(response.data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch processing agents:", error);
+      toast.error("Impossible de charger la liste des agents");
+    } finally {
+      setIsLoadingAgents(false);
+    }
+  };
 
   // Récupérer les vraies divergences pour le départ sélectionné
-  const divergences = useMemo(() => {
-    if (!selectedDeparture) return [];
+  useEffect(() => {
+    if (!selectedDeparture) {
+      setDivergences([]);
+      return;
+    }
     
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "divergence");
     
@@ -562,19 +796,20 @@ export default function DivergencesPage() {
       }
     }
     
-    return divergenceRecords;
+    setDivergences(divergenceRecords);
   }, [selectedDeparture]);
 
   const filteredDivergences = useMemo(() => {
-    if (!searchQuery) return divergences;
+    if (!searchQuery) return divergencesState;
     const query = searchQuery.toLowerCase();
-    return divergences.filter(
+    return divergencesState.filter(
       (div) =>
         div.code.toLowerCase().includes(query) ||
         div.type.toLowerCase().includes(query) ||
-        div.description.toLowerCase().includes(query)
+        div.description.toLowerCase().includes(query) ||
+        (div.assignedToName && div.assignedToName.toLowerCase().includes(query))
     );
-  }, [divergences, searchQuery]);
+  }, [divergencesState, searchQuery]);
 
   // Calculer les stats globales
   const globalStats = useMemo(() => {
@@ -732,21 +967,64 @@ export default function DivergencesPage() {
   const handleAcceptDivergence = (divergence: Divergence) => {
     toast.success(`Données terrain acceptées pour ${divergence.code}`);
     setIsDetailModalOpen(false);
+    // Mettre à jour le statut localement
+    setDivergences(prev => prev.map(d => 
+      d.id === divergence.id ? { ...d, status: "resolved" as const } : d
+    ));
   };
 
   const handleRejectDivergence = (divergence: Divergence) => {
     toast.success(`Données de référence conservées pour ${divergence.code}`);
     setIsDetailModalOpen(false);
+    setDivergences(prev => prev.map(d => 
+      d.id === divergence.id ? { ...d, status: "resolved" as const } : d
+    ));
   };
 
   const handleIgnoreDivergence = (divergence: Divergence) => {
     toast.info(`Divergence ${divergence.code} ignorée`);
     setIsDetailModalOpen(false);
+    setDivergences(prev => prev.map(d => 
+      d.id === divergence.id ? { ...d, status: "ignored" as const } : d
+    ));
   };
 
   const handleBulkAction = (divergenceIds: string[], action: string) => {
     const actionLabel = action === "accept" ? "acceptées" : "conservées en référence";
     toast.success(`${divergenceIds.length} divergence(s) ${actionLabel}`);
+    setDivergences(prev => prev.map(d => 
+      divergenceIds.includes(d.id) ? { ...d, status: "resolved" as const } : d
+    ));
+  };
+
+  const handleOpenAssignDialog = async (divergence: Divergence) => {
+    setDivergenceToAssign(divergence);
+    await fetchProcessingAgents();
+    setIsAssignDialogOpen(true);
+  };
+
+  const handleAssignDivergence = async (divergenceId: string, agentId: string, agentName: string) => {
+    setIsAssigning(true);
+    try {
+      // Simuler un appel API pour assigner la divergence
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Mettre à jour l'état local
+      setDivergences(prev => prev.map(div => 
+        div.id === divergenceId 
+          ? { ...div, assignedTo: agentId, assignedToName: agentName, status: "pending" as const }
+          : div
+      ));
+      
+      toast.success(`Divergence assignée à ${agentName}`);
+      setIsAssignDialogOpen(false);
+      setDivergenceToAssign(null);
+    } catch (error) {
+      console.error("Failed to assign divergence:", error);
+      toast.error("Erreur lors de l'assignation");
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   return (
@@ -927,6 +1205,7 @@ export default function DivergencesPage() {
                 onReject={handleRejectDivergence}
                 onIgnore={handleIgnoreDivergence}
                 onBulkAction={handleBulkAction}
+                onAssign={handleOpenAssignDialog}
               />
             </CardContent>
           </Card>
@@ -940,6 +1219,18 @@ export default function DivergencesPage() {
         onAccept={handleAcceptDivergence}
         onReject={handleRejectDivergence}
         onIgnore={handleIgnoreDivergence}
+      />
+
+      <AssignDialog
+        isOpen={isAssignDialogOpen}
+        onClose={() => {
+          setIsAssignDialogOpen(false);
+          setDivergenceToAssign(null);
+        }}
+        onAssign={handleAssignDivergence}
+        divergence={divergenceToAssign}
+        processingAgents={processingAgents}
+        isAssigning={isAssigning}
       />
     </div>
   );

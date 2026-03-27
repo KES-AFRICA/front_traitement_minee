@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useI18n } from "@/lib/i18n/context";
+import { useAuth } from "@/lib/auth/context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RegionCard } from "@/components/complex-cases/region-card";
@@ -10,7 +11,7 @@ import { DepartureCard } from "@/components/complex-cases/departure-card";
 import { PeriodFilter, PeriodType } from "@/components/complex-cases/period-filter";
 import { GlobalStatsCards } from "@/components/complex-cases/global-stats-cards";
 import { NavigationBreadcrumb, BreadcrumbItem } from "@/components/complex-cases/navigation-breadcrumb";
-import { Search, Copy, CheckCircle, XCircle, GitMerge, AlertCircle } from "lucide-react";
+import { Search, Copy, CheckCircle, XCircle, GitMerge, AlertCircle, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { 
   eneoRegions,
@@ -21,6 +22,26 @@ import {
   AnomalyCase
 } from "@/lib/api/eneo-data";
 import { layer2DB } from "@/data/layer2";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { userService } from "@/lib/api/services/users";
+import { User, UserRole } from "@/lib/api/types";
 
 type ViewLevel = "regions" | "zones" | "departures" | "duplicates";
 
@@ -34,6 +55,7 @@ interface DuplicateRecord {
   status: "pending" | "reviewing" | "merged" | "rejected";
   detectedAt: string;
   assignedTo?: string;
+  assignedToName?: string;
   rawAnomaly: AnomalyCase;
 }
 
@@ -104,6 +126,7 @@ function convertAnomalyToDuplicate(anomaly: AnomalyCase): DuplicateRecord | null
     status: "pending",
     detectedAt: new Date().toISOString().split('T')[0],
     assignedTo: undefined,
+    assignedToName: undefined,
     rawAnomaly: anomaly
   };
 }
@@ -147,6 +170,135 @@ function getEquipmentTypeLabel(table: string): string {
   return labels[table] || table;
 }
 
+// Composant pour le dialogue d'assignation
+function AssignDialog({ 
+  isOpen, 
+  onClose, 
+  onAssign,
+  duplicate,
+  processingAgents,
+  isAssigning
+}: { 
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (duplicateId: string, agentId: string, agentName: string) => void;
+  duplicate: DuplicateRecord | null;
+  processingAgents: User[];
+  isAssigning: boolean;
+}) {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const { t } = useI18n();
+
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const handleAssign = () => {
+    if (!selectedAgentId) {
+      toast.warning("Veuillez sélectionner un agent");
+      return;
+    }
+    const selectedAgent = processingAgents.find(agent => agent.id === selectedAgentId);
+    if (selectedAgent && duplicate) {
+      onAssign(duplicate.id, selectedAgentId, `${selectedAgent.firstName} ${selectedAgent.lastName}`);
+    }
+  };
+
+  if (!duplicate) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCheck className="h-5 w-5 text-primary" />
+            Assigner un agent
+          </DialogTitle>
+          <DialogDescription>
+            Assignez ce doublon à un agent de traitement pour analyse.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Doublon concerné</Label>
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <p className="font-mono text-sm font-medium">{duplicate.code}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Type: {duplicate.type} | Similarité: {duplicate.similarity}%
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {duplicate.records.map(r => r.code).join(" ↔ ")}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agent">Sélectionner un agent de traitement</Label>
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger id="agent" className="w-full">
+                <SelectValue placeholder="Choisir un agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {processingAgents.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Aucun agent disponible
+                  </SelectItem>
+                ) : (
+                  processingAgents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id} className='cursor-pointer'>
+                      <div className="flex items-center gap-2 cursor-pointe ">
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getInitials(agent.firstName, agent.lastName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>
+                          {agent.firstName} {agent.lastName}
+                        </span>
+                        <div className="ml-2 py-1 px-2 border rounded-md  text-xs">
+                          {agent.company}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="flex gap-2 sm:gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-all duration-200 cursor-pointer"
+            disabled={isAssigning}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={handleAssign}
+            disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
+            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isAssigning ? (
+              <>
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Assignation...
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-4 w-4" />
+                Assigner
+              </>
+            )}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Composant pour afficher les doublons
 function DuplicateTable({ 
   duplicates, 
@@ -155,7 +307,8 @@ function DuplicateTable({
   onKeep, 
   onDiscard,
   onReview,
-  onBulkAction 
+  onBulkAction,
+  onAssign
 }: { 
   duplicates: DuplicateRecord[];
   onView: (duplicate: DuplicateRecord) => void;
@@ -164,6 +317,7 @@ function DuplicateTable({
   onDiscard: (duplicate: DuplicateRecord) => void;
   onReview: (duplicate: DuplicateRecord) => void;
   onBulkAction: (ids: string[], action: string) => void;
+  onAssign: (duplicate: DuplicateRecord) => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -198,7 +352,8 @@ function DuplicateTable({
   const filteredDuplicates = duplicates.filter(dup => 
     dup.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
     dup.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    dup.records.some(rec => rec.code.toLowerCase().includes(searchTerm.toLowerCase()))
+    dup.records.some(rec => rec.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (dup.assignedToName && dup.assignedToName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleSelectAll = () => {
@@ -231,14 +386,14 @@ function DuplicateTable({
           <div className="flex gap-2">
             <button
               onClick={() => onBulkAction(selectedIds, "merge")}
-              className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-1"
+              className="px-3 py-1.5 text-sm bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all duration-200 cursor-pointer flex items-center gap-1"
             >
               <GitMerge className="h-3 w-3" />
               Fusionner ({selectedIds.length})
             </button>
             <button
               onClick={() => onBulkAction(selectedIds, "reject")}
-              className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
+              className="px-3 py-1.5 text-sm bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-all duration-200 cursor-pointer"
             >
               Rejeter ({selectedIds.length})
             </button>
@@ -247,7 +402,7 @@ function DuplicateTable({
       </div>
 
       <div className="border rounded-lg overflow-x-auto">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-200">
           <thead className="bg-muted/50">
             <tr className="border-b">
               <th className="w-8 p-3">
@@ -255,16 +410,16 @@ function DuplicateTable({
                   type="checkbox"
                   checked={selectedIds.length === filteredDuplicates.length && filteredDuplicates.length > 0}
                   onChange={handleSelectAll}
-                  className="rounded border-gray-300"
+                  className="rounded border-gray-300 cursor-pointer"
                 />
               </th>
               <th className="text-left p-3 font-medium">Code doublon</th>
               <th className="text-left p-3 font-medium">Type équipement</th>
               <th className="text-left p-3 font-medium">Enregistrements</th>
-              <th className="text-left p-3 font-medium">Similarité</th>
+              <th className="text-left p-3 font-medium">Assigné à</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
-             </tr>
+            </tr>
           </thead>
           <tbody>
             {filteredDuplicates.map((duplicate) => (
@@ -274,7 +429,7 @@ function DuplicateTable({
                     type="checkbox"
                     checked={selectedIds.includes(duplicate.id)}
                     onChange={() => handleSelect(duplicate.id)}
-                    className="rounded border-gray-300"
+                    className="rounded border-gray-300 cursor-pointer"
                   />
                 </td>
                 <td className="p-3 font-mono text-sm">{duplicate.code}</td>
@@ -292,9 +447,18 @@ function DuplicateTable({
                   </div>
                 </td>
                 <td className="p-3">
-                  <span className={`font-semibold ${getSimilarityColor(duplicate.similarity)}`}>
-                    {duplicate.similarity}%
-                  </span>
+                  {duplicate.assignedToName ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-xs bg-purple-100 text-purple-700">
+                          {duplicate.assignedToName.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{duplicate.assignedToName}</span>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">Non assigné</span>
+                  )}
                 </td>
                 <td className="p-3">
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(duplicate.status)}`}>
@@ -305,27 +469,38 @@ function DuplicateTable({
                   <div className="flex gap-2">
                     <button
                       onClick={() => onView(duplicate)}
-                      className="text-blue-600 hover:text-blue-800 text-sm cursor-pointer"
+                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-blue-50/50"
+                      title="Voir les détails"
                     >
                       Voir
                     </button>
-                    {duplicate.status === "reviewing" && (
+                    <button
+                      onClick={() => onAssign(duplicate)}
+                      className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-purple-50/50"
+                      title="Assigner à un agent"
+                    >
+                      <UserCheck className="h-3 w-3" />
+                      Assigner
+                    </button>
+                    {/* {duplicate.status === "reviewing" && (
                       <>
                         <button
                           onClick={() => onMerge(duplicate, duplicate.id)}
-                          className="text-green-600 hover:text-green-800 text-sm flex items-center gap-1"
+                          className="text-green-600 hover:text-green-800 hover:bg-green-50 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm flex items-center gap-1 bg-green-50/50"
+                          title="Fusionner"
                         >
                           <GitMerge className="h-3 w-3" />
                           Fusionner
                         </button>
                         <button
                           onClick={() => onDiscard(duplicate)}
-                          className="text-gray-600 hover:text-gray-800 text-sm"
+                          className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-1.5 rounded-md transition-all duration-200 cursor-pointer text-sm bg-gray-50/50"
+                          title="Rejeter"
                         >
                           Rejeter
                         </button>
                       </>
-                    )}
+                    )} */}
                   </div>
                 </td>
               </tr>
@@ -451,7 +626,7 @@ function DuplicateDetailModal({
             <Copy className="h-5 w-5" />
             Fusion de doublon
           </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 cursor-pointer">
             ✕
           </button>
         </div>
@@ -490,6 +665,16 @@ function DuplicateDetailModal({
               <p className="text-sm">{duplicate.detectedAt}</p>
             </div>
           </div>
+
+          {duplicate.assignedToName && (
+            <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-purple-600" />
+                <span className="text-sm font-medium text-purple-700">Assigné à:</span>
+                <span className="text-sm text-purple-900">{duplicate.assignedToName}</span>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-sm font-medium text-muted-foreground mb-2 block">
@@ -559,21 +744,21 @@ function DuplicateDetailModal({
           <div className="flex flex-wrap gap-3 py-2 border-t">
             <button
               onClick={handleMerge}
-              className={`px-5 py-2.5 rounded-lg flex items-center gap-2 font-medium transition-colors bg-green-600 text-white hover:bg-green-700`}
+              className={`px-5 py-2.5 rounded-lg flex items-center gap-2 font-medium transition-colors bg-green-600 text-white hover:bg-green-700 cursor-pointer`}
             >
               <GitMerge className="h-4 w-4" />
               Fusionner (garder sélectionné)
             </button>
             <button
               onClick={handleKeepBoth}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium"
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium cursor-pointer"
             >
               <Copy className="h-4 w-4" />
               Conserver les deux
             </button>
             <button
               onClick={() => onDiscard(duplicate)}
-              className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 font-medium"
+              className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 font-medium cursor-pointer"
             >
               <XCircle className="h-4 w-4" />
               Rejeter les deux
@@ -587,6 +772,7 @@ function DuplicateDetailModal({
 
 export default function DuplicatesPage() {
   const { t } = useI18n();
+  const { hasPermission } = useAuth();
   
   const [viewLevel, setViewLevel] = useState<ViewLevel>("regions");
   const [selectedRegion, setSelectedRegion] = useState<EneoRegion | null>(null);
@@ -598,6 +784,27 @@ export default function DuplicatesPage() {
 
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateRecord | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [duplicateToAssign, setDuplicateToAssign] = useState<DuplicateRecord | null>(null);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [processingAgents, setProcessingAgents] = useState<User[]>([]);
+  const [isLoadingAgents, setIsLoadingAgents] = useState(false);
+
+  // Récupérer les agents de traitement
+  const fetchProcessingAgents = async () => {
+    setIsLoadingAgents(true);
+    try {
+      const response = await userService.getUsers({ role: "processing_agent" }, { pageSize: 100 });
+      if (response.data) {
+        setProcessingAgents(response.data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch processing agents:", error);
+      toast.error("Impossible de charger la liste des agents");
+    } finally {
+      setIsLoadingAgents(false);
+    }
+  };
 
   // Récupérer les vrais doublons pour le départ sélectionné
   const duplicates = useMemo(() => {
@@ -623,7 +830,8 @@ export default function DuplicatesPage() {
       (dup) =>
         dup.code.toLowerCase().includes(query) ||
         dup.type.toLowerCase().includes(query) ||
-        dup.records.some(rec => rec.code.toLowerCase().includes(query))
+        dup.records.some(rec => rec.code.toLowerCase().includes(query)) ||
+        (dup.assignedToName && dup.assignedToName.toLowerCase().includes(query))
     );
   }, [duplicates, searchQuery]);
 
@@ -810,6 +1018,54 @@ export default function DuplicatesPage() {
     toast.success(`${duplicateIds.length} doublon(s) ${action === "merge" ? "fusionnés" : "rejetés"}`);
   };
 
+  const handleOpenAssignDialog = async (duplicate: DuplicateRecord) => {
+    setDuplicateToAssign(duplicate);
+    await fetchProcessingAgents();
+    setIsAssignDialogOpen(true);
+  };
+
+  const handleAssignDuplicate = async (duplicateId: string, agentId: string, agentName: string) => {
+    setIsAssigning(true);
+    try {
+      // Simuler un appel API pour assigner le doublon
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Mettre à jour l'état local
+      setDuplicates(prev => prev.map(dup => 
+        dup.id === duplicateId 
+          ? { ...dup, assignedTo: agentId, assignedToName: agentName, status: "pending" as const }
+          : dup
+      ));
+      
+      toast.success(`Doublon assigné à ${agentName}`);
+      setIsAssignDialogOpen(false);
+      setDuplicateToAssign(null);
+    } catch (error) {
+      console.error("Failed to assign duplicate:", error);
+      toast.error("Erreur lors de l'assignation");
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
+  // État pour les doublons avec mise à jour
+  const [duplicatesState, setDuplicates] = useState<DuplicateRecord[]>([]);
+  
+  // Synchroniser duplicates avec duplicatesState
+  useMemo(() => {
+    if (selectedDeparture) {
+      const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "duplicate");
+      const duplicateRecords: DuplicateRecord[] = [];
+      for (const anomaly of anomalies) {
+        const converted = convertAnomalyToDuplicate(anomaly);
+        if (converted) {
+          duplicateRecords.push(converted);
+        }
+      }
+      setDuplicates(duplicateRecords);
+    }
+  }, [selectedDeparture]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -981,13 +1237,14 @@ export default function DuplicatesPage() {
             </CardHeader>
             <CardContent>
               <DuplicateTable
-                duplicates={filteredDuplicates}
+                duplicates={duplicatesState}
                 onView={handleViewDuplicate}
                 onMerge={handleMergeDuplicate}
                 onKeep={handleKeepDuplicate}
                 onDiscard={handleDiscardDuplicate}
                 onReview={handleReviewDuplicate}
                 onBulkAction={handleBulkAction}
+                onAssign={handleOpenAssignDialog}
               />
             </CardContent>
           </Card>
@@ -1001,6 +1258,18 @@ export default function DuplicatesPage() {
         onMerge={handleMergeDuplicate}
         onKeep={handleKeepDuplicate}
         onDiscard={handleDiscardDuplicate}
+      />
+
+      <AssignDialog
+        isOpen={isAssignDialogOpen}
+        onClose={() => {
+          setIsAssignDialogOpen(false);
+          setDuplicateToAssign(null);
+        }}
+        onAssign={handleAssignDuplicate}
+        duplicate={duplicateToAssign}
+        processingAgents={processingAgents}
+        isAssigning={isAssigning}
       />
     </div>
   );
