@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { useState, useMemo } from "react";
 import { useI18n } from "@/lib/i18n/context";
@@ -50,7 +50,6 @@ interface DuplicateItem {
 function convertAnomalyToDuplicate(anomaly: AnomalyCase): DuplicateRecord | null {
   if (anomaly.type !== "duplicate") return null;
   
-  // Pour un doublon, on a layer2Record (le premier doublon) et duplicateOf (l'ID de l'autre doublon)
   const firstRecord = anomaly.layer2Record;
   const otherId = anomaly.duplicateOf;
   
@@ -59,14 +58,12 @@ function convertAnomalyToDuplicate(anomaly: AnomalyCase): DuplicateRecord | null
     return null;
   }
   
-  // Récupérer l'autre enregistrement en double depuis layer2DB
   let secondRecord = null;
   if (otherId) {
     const tableRecords = layer2DB[anomaly.table] as unknown as Array<Record<string, unknown>>;
     secondRecord = tableRecords.find(r => String(r.m_rid) === String(otherId));
   }
   
-  // Construire les deux items à afficher
   const duplicateItems: DuplicateItem[] = [
     {
       id: firstRecord.m_rid?.toString() || firstRecord.id?.toString() || "dup1",
@@ -89,12 +86,10 @@ function convertAnomalyToDuplicate(anomaly: AnomalyCase): DuplicateRecord | null
     });
   }
   
-  // Calculer le taux de similarité
   const similarity = secondRecord 
     ? calculateSimilarity(firstRecord, secondRecord)
     : 100;
   
-  // Générer un code unique pour le doublon
   const code1 = duplicateItems[0].code;
   const code2 = duplicateItems[1]?.code || "unknown";
   const shortCode1 = code1.length > 15 ? code1.substring(0, 15) : code1;
@@ -111,15 +106,6 @@ function convertAnomalyToDuplicate(anomaly: AnomalyCase): DuplicateRecord | null
     assignedTo: undefined,
     rawAnomaly: anomaly
   };
-}
-
-// Extraire une valeur représentative pour l'affichage
-function getEquipmentValue(record: Record<string, unknown>): string {
-  if (record.name) return record.name.toString();
-  if (record.label) return record.label.toString();
-  if (record.value) return record.value.toString();
-  if (record.code) return record.code.toString();
-  return "Valeur non définie";
 }
 
 // Calculer le taux de similarité entre deux enregistrements
@@ -278,7 +264,7 @@ function DuplicateTable({
               <th className="text-left p-3 font-medium">Similarité</th>
               <th className="text-left p-3 font-medium">Statut</th>
               <th className="text-left p-3 font-medium">Actions</th>
-            </tr>
+             </tr>
           </thead>
           <tbody>
             {filteredDuplicates.map((duplicate) => (
@@ -326,7 +312,7 @@ function DuplicateTable({
                     {duplicate.status === "reviewing" && (
                       <>
                         <button
-                          onClick={() => onMerge(duplicate,duplicate.id)}
+                          onClick={() => onMerge(duplicate, duplicate.id)}
                           className="text-green-600 hover:text-green-800 text-sm flex items-center gap-1"
                         >
                           <GitMerge className="h-3 w-3" />
@@ -356,7 +342,6 @@ function DuplicateTable({
   );
 }
 
-
 // Modal pour les détails d'un doublon
 function DuplicateDetailModal({ 
   duplicate, 
@@ -379,7 +364,7 @@ function DuplicateDetailModal({
 
   const handleMerge = () => {
     if (selectedRecordId) {
-      onMerge(duplicate,selectedRecordId);
+      onMerge(duplicate, selectedRecordId);
     } else {
       toast.warning("Veuillez sélectionner l'enregistrement à conserver");
     }
@@ -390,7 +375,6 @@ function DuplicateDetailModal({
     onKeep(duplicate);
   };
 
-  // Fonction pour formater une valeur pour l'affichage
   const formatValue = (value: unknown): string => {
     if (value === null || value === undefined) return "—";
     if (typeof value === "boolean") return value ? "Oui" : "Non";
@@ -399,23 +383,17 @@ function DuplicateDetailModal({
     return String(value);
   };
 
-  // Fonction pour obtenir un libellé lisible pour un champ
   const getFieldLabel = (key: string): string => {
     const labels: Record<string, string> = {
-      // ========== CHAMPS COMMUNS ==========
       m_rid: "ID unique",
       name: "Nom",
       code: "Code",
       active: "Actif",
       created_date: "Date de création",
       display_scada: "Affiché SCADA",
-      
-      // ========== FEEDER (Départ) ==========
       voltage: "Tension (kV)",
       is_injection: "Injection",
       local_name: "Nom local",
-      
-      // ========== SUBSTATION (Poste) ==========
       highest_voltage_level: "Niveau tension max",
       second_substation_id: "ID poste secondaire",
       exploitation: "Exploitation",
@@ -427,55 +405,38 @@ function DuplicateDetailModal({
       zone_type: "Type de zone",
       security_zone_id: "Zone de sécurité",
       feeder_id: "Départ associé",
-      
-      // ========== POWERTRANSFORMER (Transformateur) ==========
       apparent_power: "Puissance apparente (kVA)",
       substation_id: "Poste source",
       t1: "Terminal 1",
       t2: "Terminal 2",
       w1_voltage: "Tension enroulement 1 (kV)",
       w2_voltage: "Tension enroulement 2 (kV)",
-      
-      // ========== BUSBAR (Jeu de barres) ==========
       phase: "Phase",
       is_feederhead: "Tête de départ",
-      
-      // ========== BAY (Travée) ==========
       busbar_id1: "Jeu de barres 1",
       busbar_id2: "Jeu de barres 2",
-      
-      // ========== SWITCH (Appareillage) ==========
       bay_mrid: "Travée",
       nature: "Nature",
       normal_open: "Normalement ouvert",
       second_switch_id: "ID secondaire",
       pole_mrid: "Poteau",
-      
-      // ========== WIRE (Conducteur) ==========
       nature_conducteur: "Nature conducteur",
       section: "Section",
-      
-      // ========== POLE (Poteau) ==========
       height: "Hauteur (m)",
-      //longitude: "Longitude",
       lattitude: "Latitude",
       is_derivation: "Dérivation",
       installation_date: "Date installation",
       lastvisit_date: "Dernière visite",
-      
-      // ========== NODE (Nœud) ==========
       pole_id: "Poteau",
     };
     return labels[key] || key;
   };
 
-  // Exclure les champs trop longs ou techniques
   const isImportantField = (key: string): boolean => {
     const excludeFields = ["geometry", "geom", "coordinates", "shape", "polygon", "multipolygon"];
     return !excludeFields.some(f => key.toLowerCase().includes(f));
   };
 
-  // Récupérer tous les champs de l'enregistrement, triés
   const getAllFields = (record: Record<string, unknown>) => {
     return Object.entries(record)
       .filter(([key]) => isImportantField(key))
@@ -495,35 +456,7 @@ function DuplicateDetailModal({
           </button>
         </div>
 
-                  {/* Actions */}
-          <div className="flex flex-wrap gap-3 py-2 border-t">
-            <button
-              onClick={handleMerge}
-              className={`px-5 py-2.5 rounded-lg flex items-center gap-2 font-medium transition-colors ${
-                   "bg-green-600 text-white hover:bg-green-700"
-              }`}
-            >
-              <GitMerge className="h-4 w-4" />
-              Fusionner (garder sélectionné)
-            </button>
-            <button
-              onClick={handleKeepBoth}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium"
-            >
-              <Copy className="h-4 w-4" />
-              Conserver les deux
-            </button>
-            <button
-              onClick={() => onDiscard(duplicate)}
-              className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 font-medium"
-            >
-              <XCircle className="h-4 w-4" />
-              Rejeter les deux
-            </button>
-          </div>
-
         <div className="space-y-3">
-          {/* Informations générales */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg">
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -558,7 +491,6 @@ function DuplicateDetailModal({
             </div>
           </div>
 
-          {/* Enregistrements en double - Vue complète */}
           <div>
             <label className="text-sm font-medium text-muted-foreground mb-2 block">
               Enregistrements en double dans la base terrain
@@ -577,7 +509,6 @@ function DuplicateDetailModal({
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
-                    {/* En-tête avec sélection */}
                     <div 
                       className={`p-4 cursor-pointer ${isSelected ? 'bg-green-50' : 'bg-gray-50'}`}
                       onClick={() => setSelectedRecordId(record.id)}
@@ -600,7 +531,6 @@ function DuplicateDetailModal({
                       </div>
                     </div>
 
-                    {/* Détails complets de l'équipement */}
                     <div className="p-2 border-t">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm">
                         {fields.map(([key, value]) => (
@@ -626,7 +556,29 @@ function DuplicateDetailModal({
             </div>
           </div>
 
-
+          <div className="flex flex-wrap gap-3 py-2 border-t">
+            <button
+              onClick={handleMerge}
+              className={`px-5 py-2.5 rounded-lg flex items-center gap-2 font-medium transition-colors bg-green-600 text-white hover:bg-green-700`}
+            >
+              <GitMerge className="h-4 w-4" />
+              Fusionner (garder sélectionné)
+            </button>
+            <button
+              onClick={handleKeepBoth}
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium"
+            >
+              <Copy className="h-4 w-4" />
+              Conserver les deux
+            </button>
+            <button
+              onClick={() => onDiscard(duplicate)}
+              className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 font-medium"
+            >
+              <XCircle className="h-4 w-4" />
+              Rejeter les deux
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -636,17 +588,14 @@ function DuplicateDetailModal({
 export default function DuplicatesPage() {
   const { t } = useI18n();
   
-  // Navigation state
   const [viewLevel, setViewLevel] = useState<ViewLevel>("regions");
   const [selectedRegion, setSelectedRegion] = useState<EneoRegion | null>(null);
   const [selectedZone, setSelectedZone] = useState<EneoZone | null>(null);
   const [selectedDeparture, setSelectedDeparture] = useState<EneoDeparture | null>(null);
   
-  // Filter state
   const [period, setPeriod] = useState<PeriodType>("month");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal state
   const [selectedDuplicate, setSelectedDuplicate] = useState<DuplicateRecord | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
@@ -654,10 +603,8 @@ export default function DuplicatesPage() {
   const duplicates = useMemo(() => {
     if (!selectedDeparture) return [];
     
-    // Récupérer les anomalies de type "duplicate" pour ce départ
     const anomalies = getAnomaliesByFeeder(selectedDeparture.feederId, "duplicate");
     
-    // Convertir chaque anomalie en DuplicateRecord
     const duplicateRecords: DuplicateRecord[] = [];
     for (const anomaly of anomalies) {
       const converted = convertAnomalyToDuplicate(anomaly);
@@ -669,7 +616,6 @@ export default function DuplicatesPage() {
     return duplicateRecords;
   }, [selectedDeparture]);
 
-  // Filter duplicates
   const filteredDuplicates = useMemo(() => {
     if (!searchQuery) return duplicates;
     const query = searchQuery.toLowerCase();
@@ -681,28 +627,110 @@ export default function DuplicatesPage() {
     );
   }, [duplicates, searchQuery]);
 
-  // Calculer les stats globales
+  // Calculer les stats globales - basées sur les départs qui ont des doublons
   const globalStats = useMemo(() => {
-    let totalDuplicates = 0;
+    let totalDeparturesWithDuplicates = 0;
+    let totalDuplicateCases = 0;
     
     eneoRegions.forEach((region) => {
       region.zones.forEach((zone) => {
         zone.departures.forEach((departure) => {
-          const anomalies = getAnomaliesByFeeder(departure.feederId, "duplicate");
-          totalDuplicates += anomalies.length;
+          const duplicatesCount = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+          if (duplicatesCount > 0) {
+            totalDeparturesWithDuplicates++;
+            totalDuplicateCases += duplicatesCount;
+          }
         });
       });
     });
 
     return {
-      total: totalDuplicates,
-      pendingAndInProgress: totalDuplicates,
+      total: totalDuplicateCases,
+      pendingAndInProgress: totalDuplicateCases,
       completed: 0,
       completionRate: 0,
+      departuresWithDuplicates: totalDeparturesWithDuplicates
     };
   }, []);
 
-  // Build breadcrumb
+  // Filtrer les régions pour n'afficher que celles qui ont des doublons
+  const filteredRegions = useMemo(() => {
+    if (!searchQuery) {
+      return eneoRegions.filter(region => {
+        let hasDuplicates = false;
+        region.zones.forEach(zone => {
+          zone.departures.forEach(departure => {
+            if (getAnomaliesByFeeder(departure.feederId, "duplicate").length > 0) {
+              hasDuplicates = true;
+            }
+          });
+        });
+        return hasDuplicates;
+      });
+    }
+    
+    const query = searchQuery.toLowerCase();
+    return eneoRegions.filter(region => {
+      let hasDuplicates = false;
+      region.zones.forEach(zone => {
+        zone.departures.forEach(departure => {
+          if (getAnomaliesByFeeder(departure.feederId, "duplicate").length > 0) {
+            hasDuplicates = true;
+          }
+        });
+      });
+      return hasDuplicates && (
+        region.code.toLowerCase().includes(query) ||
+        region.name.toLowerCase().includes(query) ||
+        region.fullName.toLowerCase().includes(query)
+      );
+    });
+  }, [searchQuery]);
+
+  // Filtrer les zones pour n'afficher que celles qui ont des doublons
+  const filteredZones = useMemo(() => {
+    if (!selectedRegion) return [];
+    
+    let zones = selectedRegion.zones.filter(zone => {
+      let hasDuplicates = false;
+      zone.departures.forEach(departure => {
+        if (getAnomaliesByFeeder(departure.feederId, "duplicate").length > 0) {
+          hasDuplicates = true;
+        }
+      });
+      return hasDuplicates;
+    });
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      zones = zones.filter(zone => 
+        zone.code.toLowerCase().includes(query) || 
+        zone.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return zones;
+  }, [selectedRegion, searchQuery]);
+
+  // Filtrer les départs pour n'afficher que ceux qui ont des doublons
+  const filteredDepartures = useMemo(() => {
+    if (!selectedZone) return [];
+    
+    let departures = selectedZone.departures.filter(departure => 
+      getAnomaliesByFeeder(departure.feederId, "duplicate").length > 0
+    );
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      departures = departures.filter(departure => 
+        departure.code.toLowerCase().includes(query) || 
+        departure.name.toLowerCase().includes(query)
+      );
+    }
+    
+    return departures;
+  }, [selectedZone, searchQuery]);
+
   const breadcrumbItems: BreadcrumbItem[] = useMemo(() => {
     const items: BreadcrumbItem[] = [
       { id: "home", label: "Doublons", type: "home" },
@@ -752,18 +780,15 @@ export default function DuplicatesPage() {
     setViewLevel("duplicates");
   };
 
-  // Duplicate actions
   const handleViewDuplicate = (duplicate: DuplicateRecord) => {
     setSelectedDuplicate(duplicate);
     setIsDetailModalOpen(true);
   };
 
-const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
-  const toDelete = duplicate.records.find(r => r.id !== keepId);
-
-  toast.success(`Fusion effectuée pour ${duplicate.code}`);
-  setIsDetailModalOpen(false);
-};
+  const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
+    toast.success(`Fusion effectuée pour ${duplicate.code}`);
+    setIsDetailModalOpen(false);
+  };
 
   const handleKeepDuplicate = (duplicate: DuplicateRecord) => {
     toast.success(`Les deux enregistrements sont conservés pour ${duplicate.code}`);
@@ -785,39 +810,8 @@ const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
     toast.success(`${duplicateIds.length} doublon(s) ${action === "merge" ? "fusionnés" : "rejetés"}`);
   };
 
-  // Filter regions by search
-  const filteredRegions = useMemo(() => {
-    if (!searchQuery) return eneoRegions;
-    const query = searchQuery.toLowerCase();
-    return eneoRegions.filter(
-      (r) =>
-        r.code.toLowerCase().includes(query) ||
-        r.name.toLowerCase().includes(query) ||
-        r.fullName.toLowerCase().includes(query)
-    );
-  }, [searchQuery]);
-
-  const filteredZones = useMemo(() => {
-    if (!selectedRegion) return [];
-    if (!searchQuery) return selectedRegion.zones;
-    const query = searchQuery.toLowerCase();
-    return selectedRegion.zones.filter(
-      (z) => z.code.toLowerCase().includes(query) || z.name.toLowerCase().includes(query)
-    );
-  }, [selectedRegion, searchQuery]);
-
-  const filteredDepartures = useMemo(() => {
-    if (!selectedZone) return [];
-    if (!searchQuery) return selectedZone.departures;
-    const query = searchQuery.toLowerCase();
-    return selectedZone.departures.filter(
-      (d) => d.code.toLowerCase().includes(query) || d.name.toLowerCase().includes(query)
-    );
-  }, [selectedZone, searchQuery]);
-
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
@@ -831,7 +825,6 @@ const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
         <PeriodFilter value={period} onChange={setPeriod} />
       </div>
 
-      {/* Global Stats */}
       <GlobalStatsCards
         total={globalStats.total}
         pendingAndInProgress={globalStats.pendingAndInProgress}
@@ -839,7 +832,6 @@ const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
         completionRate={globalStats.completionRate}
       />
 
-      {/* Navigation Breadcrumb + Search */}
       <Card>
         <CardContent className="py-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -857,14 +849,19 @@ const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
         </CardContent>
       </Card>
 
-      {/* Content based on view level */}
       {viewLevel === "regions" && (
         <div>
-          <h2 className="text-xl font-semibold mb-4">Découpage Eneo ({filteredRegions.length})</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRegions.map((region) => {
-              let regionDuplicateCount = 0;
-
+          <h2 className="text-xl font-semibold mb-4">
+            Régions avec des doublons ({filteredRegions.length})
+          </h2>
+          {filteredRegions.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              Aucune région ne contient de doublons
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredRegions.map((region) => {
+                let regionDuplicateCount = 0;
                 region.zones.forEach(zone => {
                   zone.departures.forEach(departure => {
                     regionDuplicateCount += getAnomaliesByFeeder(departure.feederId, "duplicate").length;
@@ -877,78 +874,90 @@ const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
                   inProgress: 0,
                   completed: 0
                 };
-              return (
-                <RegionCard
-                  key={region.id}
-                  code={region.code}
-                  name={region.name}
-                  fullName={region.fullName}
-                  stats={stats}
-                  zonesCount={region.zones.length}
-                  onClick={() => handleRegionClick(region)}
-                />
-              );
-            })}
-          </div>
+                return (
+                  <RegionCard
+                    key={region.id}
+                    code={region.code}
+                    name={region.name}
+                    fullName={region.fullName}
+                    stats={stats}
+                    zonesCount={region.zones.length}
+                    onClick={() => handleRegionClick(region)}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {viewLevel === "zones" && selectedRegion && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Zones de {selectedRegion.fullName} ({filteredZones.length})
+            Zones de {selectedRegion.fullName} avec des doublons ({filteredZones.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredZones.map((zone) => {
-              // Calculer le nombre total de doublons dans cette zone
-              let zoneDuplicateCount = 0;
-              zone.departures.forEach(departure => {
-                zoneDuplicateCount += getAnomaliesByFeeder(departure.feederId, "duplicate").length;
-              });
-              
-              const stats = {
-                total: zoneDuplicateCount,
-                pending: zoneDuplicateCount,
-                inProgress: 0,
-                completed: 0
-              };
-              
-              return (
-                <ZoneCard
-                  key={zone.id}
-                  code={zone.code}
-                  name={zone.name}
-                  stats={stats}
-                  departuresCount={zone.departures.length}
-                  onClick={() => handleZoneClick(zone)}
-                />
-              );
-            })}
-          </div>
+          {filteredZones.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              Aucune zone ne contient de doublons dans cette région
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredZones.map((zone) => {
+                let zoneDuplicateCount = 0;
+                zone.departures.forEach(departure => {
+                  zoneDuplicateCount += getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+                });
+                
+                const stats = {
+                  total: zoneDuplicateCount,
+                  pending: zoneDuplicateCount,
+                  inProgress: 0,
+                  completed: 0
+                };
+                
+                return (
+                  <ZoneCard
+                    key={zone.id}
+                    code={zone.code}
+                    name={zone.name}
+                    stats={stats}
+                    departuresCount={zone.departures.length}
+                    onClick={() => handleZoneClick(zone)}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {viewLevel === "departures" && selectedZone && (
         <div>
           <h2 className="text-xl font-semibold mb-4">
-            Départs de {selectedZone.name} ({filteredDepartures.length})
+            Départs de {selectedZone.name} avec des doublons ({filteredDepartures.length})
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredDepartures.map((departure) => {
-              const duplicateCount = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
-              return (
-                <DepartureCard
-                  key={departure.id}
-                  code={departure.code}
-                  name={departure.name}
-                  equipmentCount={duplicateCount}
-                  completedCount={0}
-                  pendingCount={duplicateCount}
-                  onClick={() => handleDepartureClick(departure)}
-                />
-              );
-            })}
-          </div>
+          {filteredDepartures.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              Aucun départ ne contient de doublons dans cette zone
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredDepartures.map((departure) => {
+                const duplicateCount = getAnomaliesByFeeder(departure.feederId, "duplicate").length;
+                return (
+                  <DepartureCard
+                    key={departure.id}
+                    code={departure.code}
+                    name={departure.name}
+                    equipmentCount={duplicateCount}
+                    completedCount={0}
+                    pendingCount={duplicateCount}
+                    onClick={() => handleDepartureClick(departure)}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -985,7 +994,6 @@ const handleMergeDuplicate = (duplicate: DuplicateRecord, keepId: string) => {
         </div>
       )}
 
-      {/* Modal */}
       <DuplicateDetailModal
         duplicate={selectedDuplicate}
         isOpen={isDetailModalOpen}
