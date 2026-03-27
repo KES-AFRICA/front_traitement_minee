@@ -47,6 +47,14 @@ export interface EneoRegion {
   zones: EneoZone[];
 }
 
+export interface ComplexCaseStats {
+  total: number;
+  pending: number;
+  inProgress: number;
+  completed: number;
+}
+
+
 // ─── Caches pour les résolutions de relations ────────────────────────────────
 
 const substationToFeederCache = new Map<string, string>();
@@ -285,7 +293,7 @@ function buildDeparture(feederId: number | string, feederName: string): EneoDepa
 
   return {
     id: feederStr,
-    code: feederName.split(" ")[0].replace("BON.", "D").replace("BON.D", "D") || feederStr,
+    code: feederName.split(" ")[0].replace("BON.", "").replace("BON.D", "") || feederStr,
     name: feederName,
     feederId,
     equipmentCount,
