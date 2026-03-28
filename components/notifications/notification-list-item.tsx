@@ -47,7 +47,7 @@ export function NotificationListItem({
       )}
     >
       <Avatar className="h-10 w-10 shrink-0">
-        <AvatarFallback className="text-xs font-semibold bg-gradient-to-br from-primary to-primary/70 text-white">
+        <AvatarFallback className="text-xs font-semibold bg-linear-to-br from-primary to-primary/70 text-white">
           {initials}
         </AvatarFallback>
       </Avatar>
@@ -62,14 +62,14 @@ export function NotificationListItem({
                 : "text-foreground/80"
             )}
           >
-            {notification.title}
+              {notification.title.length > 25 ?  notification.title.substring(0,24)+"..." : notification.title}
           </p>
           <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
             {timeAgo}
           </span>
         </div>
         <p className="text-xs text-muted-foreground truncate line-clamp-1">
-          {notification.description}
+          {notification.description.length > 25 ?  notification.description.substring(0,24)+"..." : notification.description}
         </p>
       </div>
 

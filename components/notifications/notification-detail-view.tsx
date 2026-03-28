@@ -280,10 +280,10 @@ export function NotificationDetailView({
   const missingCount = getMetadataNumber("missingCount");
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-background">
+    <div className="h-full w-full flex flex-col overflow-hidden bg-background">
       {/* Header avec actions */}
       <div className="sticky top-0 z-20 border-b bg-card/95 backdrop-blur p-5 space-y-4">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col md:flex-row items-start justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="mt-1 p-2 rounded-full bg-primary/10">{typeIcons[notification.type]}</div>
             <div className="flex-1">
@@ -332,7 +332,7 @@ export function NotificationDetailView({
       </div>
 
       {/* Contenu principal */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-6">
+      <div className="overflow-y-auto p-5 space-y-6">
         {/* Description */}
         <Card className="p-4 bg-muted/30 border-0">
           <p className="text-sm leading-relaxed">{notification.description}</p>

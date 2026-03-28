@@ -9,7 +9,7 @@ import { PeriodFilter, TimePeriod } from "@/components/notifications/period-filt
 import { NotificationDetailView } from "@/components/notifications/notification-detail-view";
 import { NotificationGroup } from "@/components/notifications/notification-group";
 import { NotificationDetail, getAllNotifications } from "@/lib/api/notification-details-data";
-import { Search, Bell, Check } from "lucide-react";
+import { Search, Bell, Check, ArrowLeft } from "lucide-react";
 import {
   isToday,
   isYesterday,
@@ -37,13 +37,14 @@ const getTimePeriodMs = (period: TimePeriod): number => {
 
 export default function NotificationsPage() {
   const { language } = useI18n();
-  
+
   const [notifications, setNotifications] = useState<NotificationDetail[]>([]);
   const [selectedNotification, setSelectedNotification] = useState<NotificationDetail | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("all");
-  const [leftWidth, setLeftWidth] = useState(35);
   const [isLoading, setIsLoading] = useState(true);
+  // Mobile: true = showing detail view, false = showing list
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
   useEffect(() => {
     const allNotifications = getAllNotifications();
@@ -80,6 +81,7 @@ export default function NotificationsPage() {
 
   const handleSelectNotification = (notification: NotificationDetail) => {
     setSelectedNotification(notification);
+    setMobileShowDetail(true);
     if (!notification.isRead) {
       setNotifications((prev) =>
         prev.map((n) =>
@@ -87,6 +89,10 @@ export default function NotificationsPage() {
         )
       );
     }
+  };
+
+  const handleBack = () => {
+    setMobileShowDetail(false);
   };
 
   const handleMarkAsRead = (id: string) => {
@@ -110,6 +116,7 @@ export default function NotificationsPage() {
       const newList = prev.filter((n) => n.id !== id);
       if (selectedNotification?.id === id) {
         setSelectedNotification(newList[0] || null);
+        setMobileShowDetail(false);
       }
       return newList;
     });
@@ -125,14 +132,17 @@ export default function NotificationsPage() {
     );
   }
 
-  return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
-      {/* Header */}
-      <div className="border-b bg-card px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6 text-primary" />
+  // ─── Shared list panel ────────────────────────────────────────────────────
+  const ListPanel = (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* List header */}
+      <div className="border-b bg-card px-4 py-3 flex flex-col shrink-0">
+        <div className="flex items-center gap-2  mb-2">
+          <Bell className="h-5 w-5 text-primary" />
           <div>
-            <h1 className="font-semibold text-foreground">Notifications</h1>
+            <h1 className="font-semibold text-foreground text-sm leading-tight">
+              Notifications
+            </h1>
             <p className="text-xs text-muted-foreground">
               {unreadCount > 0
                 ? language === "fr"
@@ -144,12 +154,12 @@ export default function NotificationsPage() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <PeriodFilter selected={timePeriod} onSelectPeriod={setTimePeriod} language={language} />
           {unreadCount > 0 && (
-            <Button size="sm" variant="outline" onClick={handleMarkAllAsRead} className="gap-1.5">
-              <Check className="h-4 w-4" />
-              <span className="hidden sm:inline text-xs">
+            <Button size="sm" variant="outline" onClick={handleMarkAllAsRead} className="gap-1 h-8 px-2">
+              <Check className="h-3.5 w-3.5" />
+              <span className="text-xs hidden sm:inline">
                 {language === "fr" ? "Tout lire" : "Mark all"}
               </span>
             </Button>
@@ -157,86 +167,104 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex gap-0 overflow-hidden">
-        {/* Left panel - List */}
-        <div className="flex flex-col border-r overflow-hidden transition-all" style={{ width: `${leftWidth}%` }}>
-          <div className="border-b p-3 flex-shrink-0">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={language === "fr" ? "Chercher..." : "Search..."}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-9 text-sm"
-              />
-            </div>
-          </div>
-          <ScrollArea className="flex-1">
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
-                <Bell className="h-12 w-12 opacity-20 mb-2" />
-                <p className="text-sm">{language === "fr" ? "Aucune notification" : "No notifications"}</p>
-              </div>
-            ) : (
-              <div className="space-y-0">
-                {Object.entries(grouped).map(([dateGroup, notifs]) => (
-                  <NotificationGroup
-                    key={dateGroup}
-                    date={dateGroup}
-                    notifications={notifs}
-                    onSelect={handleSelectNotification}
-                    selectedId={selectedNotification?.id}
-                    language={language}
-                  />
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </div>
-
-        {/* Resizable divider */}
-        <div className="flex h-full" style={{ width: `${100 - leftWidth}%`, position: "relative" }}>
-          <div
-            onMouseDown={(e) => {
-              const startX = e.clientX;
-              const startWidth = leftWidth;
-              const container = document.body;
-              const handleMove = (moveEvent: MouseEvent) => {
-                const deltaX = moveEvent.clientX - startX;
-                const containerWidth = container.clientWidth;
-                const deltaPercent = (deltaX / containerWidth) * 100;
-                const newLeftWidth = startWidth + deltaPercent;
-                if (newLeftWidth >= 20 && newLeftWidth <= 80) setLeftWidth(newLeftWidth);
-              };
-              const handleUp = () => {
-                document.removeEventListener("mousemove", handleMove);
-                document.removeEventListener("mouseup", handleUp);
-              };
-              document.addEventListener("mousemove", handleMove);
-              document.addEventListener("mouseup", handleUp);
-            }}
-            className="w-1 bg-border hover:bg-primary/50 transition-colors cursor-col-resize select-none"
+      {/* Search */}
+      <div className="border-b p-3 shrink-0">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={language === "fr" ? "Chercher..." : "Search..."}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 text-sm"
           />
-          <div className="hidden md:flex flex-col flex-1 overflow-hidden bg-card">
-            {selectedNotification ? (
-              <NotificationDetailView
-                notification={selectedNotification}
-                onMarkAsRead={handleMarkAsRead}
-                onDelete={handleDelete}
-                language={language}
-              />
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
-                <Bell className="h-16 w-16 opacity-10 mb-4" />
-                <p className="text-sm">
-                  {language === "fr" ? "Sélectionnez une notification" : "Select a notification"}
-                </p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
+
+      {/* List */}
+      <ScrollArea className="flex-1">
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center px-4">
+            <Bell className="h-12 w-12 opacity-20 mb-2" />
+            <p className="text-sm">
+              {language === "fr" ? "Aucune notification" : "No notifications"}
+            </p>
+          </div>
+        ) : (
+          <div>
+            {Object.entries(grouped).map(([dateGroup, notifs]) => (
+              <NotificationGroup
+                key={dateGroup}
+                date={dateGroup}
+                notifications={notifs}
+                onSelect={handleSelectNotification}
+                selectedId={selectedNotification?.id}
+                language={language}
+              />
+            ))}
+          </div>
+        )}
+      </ScrollArea>
     </div>
+  );
+
+  // ─── Shared detail panel ──────────────────────────────────────────────────
+  const DetailPanel = (
+    <div className="flex flex-col h-full overflow-hidden bg-card">
+      {selectedNotification ? (
+        <NotificationDetailView
+          notification={selectedNotification}
+          onMarkAsRead={handleMarkAsRead}
+          onDelete={handleDelete}
+          language={language}
+        />
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-6 text-center">
+          <Bell className="h-16 w-16 opacity-10 mb-4" />
+          <p className="text-sm">
+            {language === "fr" ? "Sélectionnez une notification" : "Select a notification"}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
+  // ─── Mobile detail header with back button ────────────────────────────────
+  const MobileDetailView = (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="border-b bg-card px-4 py-3 flex items-center gap-3 shrink-0">
+        <button
+          onClick={handleBack}
+          className="flex items-center gap-1.5 text-primary text-sm font-medium"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          {language === "fr" ? "Retour" : "Back"}
+        </button>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        {DetailPanel}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {/* ── MOBILE layout (< md): WhatsApp-style slide between list & detail ── */}
+      <div className="md:hidden h-screen flex flex-col overflow-hidden bg-background">
+        {mobileShowDetail ? MobileDetailView : ListPanel}
+      </div>
+
+      {/* ── DESKTOP layout (≥ md) ────────────── */}
+      <div className="hidden md:flex h-screen overflow-hidden bg-background">
+        {/* Left panel */}
+        <div className="w-1.7/4 min-w-0 border-r flex flex-col overflow-hidden">
+          {ListPanel}
+        </div>
+
+        {/* Right panel */}
+        <div className="w-2.3/4 min-w-0 flex flex-col overflow-hidden">
+          {DetailPanel}
+        </div>
+      </div>
+    </>
   );
 }
