@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import {
   CheckCircle2, ChevronRight, ChevronDown, Pencil,
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
   Layers, Info, MapPin, Save, UserCheck, Users, Filter,
+  Play, Clock, Timer
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -265,7 +266,7 @@ function AssignDialog({
   );
 }
 
-// ─── Sheet pour les détails d'équipement (inchangé, garder le code précédent) ───
+// ─── Sheet pour les détails d'équipement ──────────────────────────────────────
 function EquipmentDetailSheet({
   equipment,
   isOpen,
@@ -273,6 +274,7 @@ function EquipmentDetailSheet({
   onSave,
   treatment,
   onFieldChange,
+  isTreatmentActive,
 }: {
   equipment: EquipmentDetail | null;
   isOpen: boolean;
@@ -280,14 +282,16 @@ function EquipmentDetailSheet({
   onSave: (equipment: EquipmentDetail, updatedData: Record<string, unknown>) => void;
   treatment: TreatmentState;
   onFieldChange: (anomalyId: string, field: string, val: string) => void;
+  isTreatmentActive: boolean;
 }) {
   const [editedData, setEditedData] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   const allFields = useMemo(() => {
     if (!equipment) return [];
+    // Filtrer pour exclure created_date et autres champs système
     return Object.keys(editedData)
-      .filter(k => k !== "m_rid" && k !== "_anomalyType" && k !== "_anomalyId" && k !== "_table")
+      .filter(k => k !== "m_rid" && k !== "_anomalyType" && k !== "_anomalyId" && k !== "_table" && k !== "created_date" && k !== "created_at")
       .sort();
   }, [equipment, editedData]);
 
@@ -416,15 +420,20 @@ function EquipmentDetailSheet({
                 <div key={field} className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground flex items-center justify-between">
                     <span>{fl(field)}</span>
-                    {isModified && (
+                    {isModified && isTreatmentActive && (
                       <span className="text-[10px] text-amber-600">modifié</span>
                     )}
                   </Label>
                   
-                  {inputType === "select" ? (
+                  {!isTreatmentActive ? (
+                    <div className="p-2 rounded-md bg-muted/20 text-sm font-mono">
+                      {fv(value)}
+                    </div>
+                  ) : inputType === "select" ? (
                     <Select
                       value={String(value)}
                       onValueChange={(v) => handleFieldChange(field, v === "true" || v === "oui" || v === "Oui")}
+                      disabled={!isTreatmentActive}
                     >
                       <SelectTrigger className="h-9 text-sm">
                         <SelectValue />
@@ -438,10 +447,12 @@ function EquipmentDetailSheet({
                     <textarea
                       value={String(value)}
                       onChange={(e) => handleFieldChange(field, e.target.value)}
+                      disabled={!isTreatmentActive}
                       className={cn(
                         "w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        isModified && "border-amber-500"
+                        isModified && isTreatmentActive && "border-amber-500",
+                        !isTreatmentActive && "bg-muted/20 cursor-not-allowed"
                       )}
                       rows={3}
                     />
@@ -450,11 +461,16 @@ function EquipmentDetailSheet({
                       type={inputType}
                       value={String(value)}
                       onChange={(e) => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                      className={cn("h-9 text-sm", isModified && "border-amber-500 focus-visible:ring-amber-500")}
+                      disabled={!isTreatmentActive}
+                      className={cn(
+                        "h-9 text-sm",
+                        isModified && isTreatmentActive && "border-amber-500 focus-visible:ring-amber-500",
+                        !isTreatmentActive && "bg-muted/20 cursor-not-allowed"
+                      )}
                     />
                   )}
                   
-                  {isModified && originalValue !== undefined && (
+                  {isModified && originalValue !== undefined && isTreatmentActive && (
                     <p className="text-[10px] text-muted-foreground">
                       Ancienne valeur: {fv(originalValue)}
                     </p>
@@ -492,7 +508,7 @@ function EquipmentDetailSheet({
                         </div>
                         <div>
                           <p className="text-muted-foreground mb-1">BD2 (Terrain)</p>
-                          {anomalyId ? (
+                          {anomalyId && isTreatmentActive ? (
                             <Input
                               value={currentValue}
                               onChange={(e) => onFieldChange(anomalyId, field.field, e.target.value)}
@@ -512,33 +528,36 @@ function EquipmentDetailSheet({
           )}
         </div>
 
-        <SheetFooter className="px-5 py-4 border-t shrink-0 flex flex-row gap-3 sm:gap-2">
-          <Button variant="outline" className="flex-1" onClick={onClose}>
-            Annuler
-          </Button>
-          <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <>
-                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                Enregistrement...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Enregistrer
-              </>
-            )}
-          </Button>
-        </SheetFooter>
+        {isTreatmentActive && (
+          <SheetFooter className="px-5 py-4 border-t shrink-0 flex flex-row gap-3 sm:gap-2">
+            <Button variant="outline" className="flex-1" onClick={onClose}>
+              Annuler
+            </Button>
+            <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Enregistrement...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Enregistrer
+                </>
+              )}
+            </Button>
+          </SheetFooter>
+        )}
       </SheetContent>
     </Sheet>
   );
 }
 
 // ─── Carte d'équipement (pour les bons équipements) ───────────────────────────
-function EquipmentCard({ equipment, onEquipmentClick }: {
+function EquipmentCard({ equipment, onEquipmentClick, isTreatmentActive }: {
   equipment: EquipmentDetail;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
+  isTreatmentActive: boolean;
 }) {
   const Icon = TABLE_ICONS[equipment.table] || Box;
   const iconColor = "text-primary";
@@ -548,7 +567,10 @@ function EquipmentCard({ equipment, onEquipmentClick }: {
   return (
     <div 
       onClick={() => onEquipmentClick?.(equipment)}
-      className="rounded-xl border border-border bg-card cursor-pointer hover:shadow-md hover:border-primary/50 transition-all"
+      className={cn(
+        "rounded-xl border border-border bg-card cursor-pointer hover:shadow-md hover:border-primary/50 transition-all",
+        !isTreatmentActive && "opacity-60 cursor-not-allowed hover:border-border"
+      )}
     >
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/40">
         <Icon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
@@ -573,11 +595,12 @@ function EquipmentCard({ equipment, onEquipmentClick }: {
 }
 
 // ─── Carte d'anomalie ─────────────────────────────────────────────────────────
-function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick }: {
+function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isTreatmentActive }: {
   anomaly: AnomalyCase; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
   onMarkTreated: (id: string) => void;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
+  isTreatmentActive: boolean;
 }) {
   const t = treatment[anomaly.id];
   const isTreated = t?.treated ?? false;
@@ -611,9 +634,10 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
   return (
     <div 
       className={cn("rounded-xl border transition-all cursor-pointer hover:shadow-md", 
-        isTreated ? "border-emerald-500/30 bg-emerald-500/5" : "border-border bg-card"
+        isTreated ? "border-emerald-500/30 bg-emerald-500/5" : "border-border bg-card",
+        !isTreatmentActive && "opacity-60 cursor-not-allowed hover:border-border"
       )}
-      onClick={() => equipmentDetail && onEquipmentClick?.(equipmentDetail)}
+      onClick={() => isTreatmentActive && equipmentDetail && onEquipmentClick?.(equipmentDetail)}
     >
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-border/40">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -635,7 +659,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
             </div>
           ))}
         </div>
-        {!isTreated && (
+        {!isTreated && isTreatmentActive && (
           <div className="flex justify-end pt-2 mt-2 border-t border-border/40">
             <button 
               onClick={(e) => { e.stopPropagation(); onMarkTreated(anomaly.id); }}
@@ -651,7 +675,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
 }
 
 // ─── Groupe par table avec filtrage amélioré ─────────────────────────────────
-function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen }: {
+function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen, isTreatmentActive }: {
   table: string; 
   allAnomalies: AnomalyCase[]; 
   allGoodEquipments: EquipmentDetail[];
@@ -661,18 +685,17 @@ function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment,
   onMarkTreated: (id: string) => void;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
   defaultOpen: boolean;
+  isTreatmentActive: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const Icon = TABLE_ICONS[table] || Box;
   
-  // Filtrer les anomalies selon le filtre actif
   const filteredAnomalies = useMemo(() => {
     if (filter === "all") return allAnomalies;
     if (filter === "ok") return [];
     return allAnomalies.filter((a) => a.type === filter);
   }, [allAnomalies, filter]);
   
-  // Filtrer les bons équipements selon le filtre actif
   const filteredGoodEquipments = useMemo(() => {
     if (filter === "all") return allGoodEquipments;
     if (filter === "ok") return allGoodEquipments;
@@ -683,7 +706,6 @@ function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment,
   const allDone = treatedCount === filteredAnomalies.length && filteredAnomalies.length > 0;
   const totalCount = filteredAnomalies.length + filteredGoodEquipments.length;
   
-  // Ne pas afficher le groupe si aucun élément après filtrage
   if (totalCount === 0) return null;
 
   return (
@@ -700,7 +722,6 @@ function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment,
       </button>
       {open && (
         <div className="p-3 space-y-3">
-          {/* Équipements avec anomalies filtrés */}
           {filteredAnomalies.map((a) => (
             <AnomalyCard 
               key={a.id} 
@@ -709,15 +730,50 @@ function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment,
               onFieldChange={onFieldChange} 
               onMarkTreated={onMarkTreated}
               onEquipmentClick={onEquipmentClick}
+              isTreatmentActive={isTreatmentActive}
             />
           ))}
           
-          {/* Équipements bons filtrés */}
           {filteredGoodEquipments.map((eq) => (
-            <EquipmentCard key={eq.id} equipment={eq} onEquipmentClick={onEquipmentClick} />
+            <EquipmentCard 
+              key={eq.id} 
+              equipment={eq} 
+              onEquipmentClick={onEquipmentClick} 
+              isTreatmentActive={isTreatmentActive}
+            />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Timer Component ──────────────────────────────────────────────────────────
+function TimerDisplay({ startTime }: { startTime: number | null }) {
+  const [elapsed, setElapsed] = useState<string>("00:00:00");
+
+  useEffect(() => {
+    if (!startTime) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const diff = now - startTime;
+      const hours = Math.floor(diff / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      setElapsed(`${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  if (!startTime) return null;
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+      <Timer className="h-4 w-4 text-primary" />
+      <span className="text-sm font-medium text-muted-foreground">Temps écoulé:</span>
+      <span className="text-base font-bold text-primary font-mono tracking-wide">{elapsed}</span>
     </div>
   );
 }
@@ -736,9 +792,46 @@ export default function FeederProcessingPage() {
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [processingAgents, setProcessingAgents] = useState<User[]>([]);
   const [isAssigning, setIsAssigning] = useState(false);
+  
+  // État pour le traitement
+  const [isTreatmentActive, setIsTreatmentActive] = useState(false);
+  const [treatmentStartTime, setTreatmentStartTime] = useState<number | null>(null);
+  const [treatmentTimerKey, setTreatmentTimerKey] = useState(0);
+
+  // Vérifier l'état du traitement au chargement (sessionStorage pour persistance page)
+  useEffect(() => {
+    const savedState = sessionStorage.getItem(`treatment_${feederId}`);
+    if (savedState) {
+      const { active, startTime } = JSON.parse(savedState);
+      setIsTreatmentActive(active);
+      if (startTime) {
+        setTreatmentStartTime(startTime);
+      }
+    }
+  }, [feederId]);
+
+  // Sauvegarder l'état du traitement
+  const saveTreatmentState = (active: boolean, startTime: number | null) => {
+    sessionStorage.setItem(`treatment_${feederId}`, JSON.stringify({ active, startTime }));
+  };
+
+  const handleStartTreatment = () => {
+    const now = Date.now();
+    setIsTreatmentActive(true);
+    setTreatmentStartTime(now);
+    saveTreatmentState(true, now);
+    toast.success("Traitement démarré, les champs sont maintenant modifiables");
+  };
+
+  const handleStopTreatment = () => {
+    setIsTreatmentActive(false);
+    setTreatmentStartTime(null);
+    saveTreatmentState(false, null);
+    toast.success("Traitement terminé");
+  };
 
   // Récupérer tous les équipements du feeder
-  const { allAnomalies, allEquipments, goodEquipmentsByTable, anomaliesByTable } = useMemo(() => {
+  const { allAnomalies, allEquipments, anomaliesByTable, goodEquipmentsByTable } = useMemo(() => {
     // Récupérer les anomalies
     const anomalies = getAnomaliesByFeeder(feederId);
     
@@ -851,7 +944,7 @@ export default function FeederProcessingPage() {
     return result;
   }, [allEquipments, allAnomalies]);
 
-  // Points carte - TOUS les équipements de layer2DB géolocalisés du départ
+  // Points carte
   const mapPoints = useMemo(() => {
     const points: EquipmentRecord[] = [];
     
@@ -895,9 +988,13 @@ export default function FeederProcessingPage() {
   }, []);
 
   const handleEquipmentClick = useCallback((equipment: EquipmentDetail) => {
+    if (!isTreatmentActive) {
+      toast.warning("Veuillez démarrer le traitement pour modifier les équipements");
+      return;
+    }
     setSelectedEquipment(equipment);
     setIsSheetOpen(true);
-  }, []);
+  }, [isTreatmentActive]);
 
   const handleEquipmentSave = useCallback((equipment: EquipmentDetail, updatedData: Record<string, unknown>) => {
     console.log("Sauvegarde équipement:", equipment.id, updatedData);
@@ -905,6 +1002,10 @@ export default function FeederProcessingPage() {
   }, []);
 
   const handleMapMarkerClick = useCallback((equipment: any) => {
+    if (!isTreatmentActive) {
+      toast.warning("Veuillez démarrer le traitement pour modifier les équipements");
+      return;
+    }
     const equipmentDetail: EquipmentDetail = {
       id: String(equipment.m_rid),
       mrid: equipment.m_rid,
@@ -919,7 +1020,7 @@ export default function FeederProcessingPage() {
     };
     setSelectedEquipment(equipmentDetail);
     setIsSheetOpen(true);
-  }, [allAnomalies]);
+  }, [allAnomalies, isTreatmentActive]);
 
   const fetchProcessingAgents = async () => {
     try {
@@ -962,7 +1063,6 @@ export default function FeederProcessingPage() {
     </div>
   );
 
-  // Filtrer les groupes par table selon le filtre actif
   const filteredTableGroups = useMemo(() => {
     return Array.from(anomaliesByTable.entries()).map(([table, { anomalies, goods }]) => ({
       table,
@@ -979,7 +1079,7 @@ export default function FeederProcessingPage() {
   return (
     <div className="w-full min-w-0 space-y-4 md:px-4 md:py-4 sm:px-6">
 
-      {/* En-tête avec bouton assigner */}
+      {/* En-tête avec boutons assigner et débuter traitement */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -991,19 +1091,31 @@ export default function FeederProcessingPage() {
             <span className="font-medium text-foreground">{allAnomalies.length}</span> anomalie{allAnomalies.length > 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-col md:flex-row gap-2 shrink-0">
           <Button variant="outline" onClick={handleOpenAssignDialog} className="gap-2">
             <UserCheck className="h-4 w-4" />
             Assigner un agent
           </Button>
-          {allTreated && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm font-semibold text-emerald-600">Prêt pour la validation</span>
-            </div>
+          {!isTreatmentActive ? (
+            <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700 hover:text-white cursor-pointer">
+              <Play className="h-4 w-4" />
+              Débuter le traitement
+            </Button>
+          ) : (
+            <Button onClick={handleStopTreatment} variant="outline" className="gap-2 border-red-300 text-red-600 cursor-pointer hover:bg-red-600 hover:text-white">
+              <X className="h-4 w-4" />
+              Terminer le traitement
+            </Button>
           )}
         </div>
       </div>
+
+      {/* Timer */}
+      {isTreatmentActive && treatmentStartTime && (
+        <div className="flex justify-end">
+          <TimerDisplay startTime={treatmentStartTime} />
+        </div>
+      )}
 
       {/* KPI Cards avec filtres */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 sm:gap-3">
@@ -1012,7 +1124,6 @@ export default function FeederProcessingPage() {
           const isActive = activeFilter === cfg.type;
           const Icon = cfg.icon;
           
-          // Calculer le nombre traités pour les types d'anomalies
           let treatedN = 0;
           if (cfg.type !== "all" && cfg.type !== "ok") {
             treatedN = allAnomalies.filter((a) => a.type === cfg.type && treatment[a.id]?.treated).length;
@@ -1087,7 +1198,8 @@ export default function FeederProcessingPage() {
             onFieldChange={handleFieldChange} 
             onMarkTreated={handleMarkTreated}
             onEquipmentClick={handleEquipmentClick} 
-            defaultOpen={idx === 0} 
+            defaultOpen={idx === 0}
+            isTreatmentActive={isTreatmentActive}
           />
         ))}
       </div>
@@ -1100,6 +1212,7 @@ export default function FeederProcessingPage() {
         onSave={handleEquipmentSave}
         treatment={treatment}
         onFieldChange={handleFieldChange}
+        isTreatmentActive={isTreatmentActive}
       />
 
       {/* Dialog d'assignation */}
