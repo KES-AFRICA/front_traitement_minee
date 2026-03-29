@@ -105,7 +105,7 @@ export const mockNotifications: NotificationDetail[] = [
     confidence: 88,
     createdAt: new Date(Date.now() - 35 * 60000),
     assignedAt: new Date(Date.now() - 30 * 60000),
-    action: { label: "Résoudre", url: "/distribution/processing/differences/task-002" },
+    action: { label: "Voir", url: "/distribution/processing/differences/task-002" },
     metadata: { affectedRegion: "Douala", fieldCount: 2 },
   },
   {

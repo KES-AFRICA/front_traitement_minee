@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth/context";
 import { useI18n } from "@/lib/i18n/context";
-import { useNotificationContext } from "@/lib/context/notification-context"; // import
+import { useNotificationContext } from "@/lib/context/notification-context";
 import {
   Sidebar,
   SidebarContent,
@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { EneoDeparture, EneoRegion, EneoZone } from "@/lib/api/eneo-data";
 import { DistributionTree } from "../distribution/distribution-tree";
+import { cn } from "@/lib/utils";
 
 const roleLabels: Record<string, string> = {
   admin: "Administrateur",
@@ -65,12 +66,23 @@ export function AppSidebar() {
   const router = useRouter();
   const { user, logout, hasPermission } = useAuth();
   const { t } = useI18n();
-  const { unreadCount } = useNotificationContext(); // real count from context
+  const { unreadCount } = useNotificationContext();
 
-  // Feeder sélectionné dans la sidebar (partagé entre traitement/validation)
   const [selectedFeederId, setSelectedFeederId] = useState<string | number | undefined>();
+  const [openSection, setOpenSection] = useState<"distribution" | "commercial" | null>(null);
 
-  // Lire le feeder depuis l'URL si on est déjà sur une page feeder
+  // Determine which section should be open based on current path
+  useEffect(() => {
+    if (pathname.startsWith("/distribution")) {
+      setOpenSection("distribution");
+    } else if (pathname.startsWith("/commercial")) {
+      setOpenSection("commercial");
+    } else {
+      setOpenSection(null);
+    }
+  }, [pathname]);
+
+  // Read feeder from URL
   useEffect(() => {
     const match = pathname.match(/\/distribution\/(processing|validation)\/feeder\/([^/]+)/);
     if (match) setSelectedFeederId(match[2]);
@@ -104,6 +116,12 @@ export function AppSidebar() {
   const isDistribProcessing = pathname.startsWith("/distribution/processing");
   const isDistribValidation = pathname.startsWith("/distribution/validation");
 
+  const isSectionActive = (section: "distribution" | "commercial") => {
+    if (section === "distribution") return pathname.startsWith("/distribution");
+    if (section === "commercial") return pathname.startsWith("/commercial");
+    return false;
+  };
+
   return (
     <Sidebar collapsible="icon" className="border-sidebar-border">
       <SidebarHeader className="p-4">
@@ -122,7 +140,12 @@ export function AppSidebar() {
               {/* Dashboard */}
               {hasPermission("view:dashboard") && (
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/dashboard"} tooltip="Tableau de bord">
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard"}
+                    tooltip="Tableau de bord"
+                    className="hover:bg-sidebar-accent/50"
+                  >
                     <Link href="/dashboard">
                       <LayoutDashboard className="w-4 h-4" />
                       <span>{t("nav.dashboard")}</span>
@@ -132,174 +155,208 @@ export function AppSidebar() {
               )}
 
               {/* ── Distribution ──────────────────────────────────────── */}
-              <Collapsible
-                asChild
-                defaultOpen={isDistribProcessing || isDistribValidation}
-                className="group/distrib"
-              >
-                <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      tooltip="Distribution"
-                      className="bg-blue-500/10 hover:bg-blue-500/15"
-                    >
-                      <Zap className="w-4 h-4 text-blue-500" />
-                      <span>Distribution</span>
-                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/distrib:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
+              <SidebarMenuItem>
+                <Collapsible
+                  asChild
+                  open={openSection === "distribution"}
+                  onOpenChange={(open) => setOpenSection(open ? "distribution" : null)}
+                  className="group/distrib"
+                >
+                  <div>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton
+                        tooltip="Distribution"
+                        className={cn(
+                          "hover:bg-sidebar-accent/50",
+                          openSection === "distribution" && "bg-blue-500/10"
+                        )}
+                      >
+                        <Zap className="w-4 h-4 text-blue-500" />
+                        <span>Distribution</span>
+                        <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/distrib:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
 
-                  <CollapsibleContent>
-                    <SidebarMenuSub className="gap-0">
+                    <CollapsibleContent>
+                      <SidebarMenuSub className="gap-0 ml-2 pl-2 border-l border-sidebar-border/50">
+                        {/* Traitement */}
+                        <SidebarMenuSubItem>
+                          <Collapsible
+                            asChild
+                            defaultOpen={isDistribProcessing}
+                            className="group/proc"
+                          >
+                            <div className="w-full">
+                              <CollapsibleTrigger asChild>
+                                <SidebarMenuSubButton className="w-full justify-between font-medium hover:bg-sidebar-accent/40">
+                                  <div className="flex items-center gap-2">
+                                    <Wrench className="w-3.5 h-3.5 shrink-0" />
+                                    <span>Traitement</span>
+                                  </div>
+                                  <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/proc:rotate-90" />
+                                </SidebarMenuSubButton>
+                              </CollapsibleTrigger>
 
-                      {/* ── Traitement ── */}
-                      <SidebarMenuSubItem>
-                        <Collapsible
-                          asChild
-                          defaultOpen={isDistribProcessing}
-                          className="group/proc"
-                        >
-                          <div className="w-full">
-                            <CollapsibleTrigger asChild>
-                              <SidebarMenuSubButton className="w-full justify-between font-medium">
-                                <div className="flex items-center gap-2">
-                                  <Wrench className="w-3.5 h-3.5 shrink-0" />
-                                  <span>Traitement</span>
+                              <CollapsibleContent>
+                                <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
+                                  <div className="group-data-[collapsible=icon]:hidden">
+                                    <DistributionTree
+                                      mode="processing"
+                                      selectedFeederId={selectedFeederId}
+                                      onFeederSelect={handleFeederSelectProcessing}
+                                    />
+                                  </div>
                                 </div>
-                                <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/proc:rotate-90" />
-                              </SidebarMenuSubButton>
-                            </CollapsibleTrigger>
+                              </CollapsibleContent>
+                            </div>
+                          </Collapsible>
+                        </SidebarMenuSubItem>
 
-                            <CollapsibleContent>
-                              {/* Arbre dynamique Région → Exploitation → Feeder */}
-                              <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
-                                {/* Vue collapsed de la sidebar : masquer l'arbre */}
-                                <div className="group-data-[collapsible=icon]:hidden">
-                                  <DistributionTree
-                                    mode="processing"
-                                    selectedFeederId={selectedFeederId}
-                                    onFeederSelect={handleFeederSelectProcessing}
-                                  />
+                        {/* Validation */}
+                        <SidebarMenuSubItem>
+                          <Collapsible
+                            asChild
+                            defaultOpen={isDistribValidation}
+                            className="group/valid"
+                          >
+                            <div className="w-full">
+                              <CollapsibleTrigger asChild>
+                                <SidebarMenuSubButton className="w-full justify-between font-medium hover:bg-sidebar-accent/40">
+                                  <div className="flex items-center gap-2">
+                                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                                    <span>Validation</span>
+                                  </div>
+                                  <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/valid:rotate-90" />
+                                </SidebarMenuSubButton>
+                              </CollapsibleTrigger>
+
+                              <CollapsibleContent>
+                                <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
+                                  <div className="group-data-[collapsible=icon]:hidden">
+                                    <DistributionTree
+                                      mode="validation"
+                                      selectedFeederId={selectedFeederId}
+                                      onFeederSelect={handleFeederSelectValidation}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
-                            </CollapsibleContent>
-                          </div>
-                        </Collapsible>
-                      </SidebarMenuSubItem>
-
-                      {/* ── Validation ── */}
-                      <SidebarMenuSubItem>
-                        <Collapsible
-                          asChild
-                          defaultOpen={isDistribValidation}
-                          className="group/valid"
-                        >
-                          <div className="w-full">
-                            <CollapsibleTrigger asChild>
-                              <SidebarMenuSubButton className="w-full justify-between font-medium">
-                                <div className="flex items-center gap-2">
-                                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                                  <span>Validation</span>
-                                </div>
-                                <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/valid:rotate-90" />
-                              </SidebarMenuSubButton>
-                            </CollapsibleTrigger>
-
-                            <CollapsibleContent>
-                              <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
-                                <div className="group-data-[collapsible=icon]:hidden">
-                                  <DistributionTree
-                                    mode="validation"
-                                    selectedFeederId={selectedFeederId}
-                                    onFeederSelect={handleFeederSelectValidation}
-                                  />
-                                </div>
-                              </div>
-                            </CollapsibleContent>
-                          </div>
-                        </Collapsible>
-                      </SidebarMenuSubItem>
-
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
+                              </CollapsibleContent>
+                            </div>
+                          </Collapsible>
+                        </SidebarMenuSubItem>
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              </SidebarMenuItem>
 
               {/* ── Commercial ────────────────────────────────────────── */}
-              <Collapsible asChild className="group/commercial">
-                <SidebarMenuItem>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      tooltip="Commercial"
-                      className="bg-emerald-500/10 hover:bg-emerald-500/15"
-                    >
-                      <DollarSign className="w-4 h-4 text-emerald-500" />
-                      <span>Commercial</span>
-                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/commercial:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      <SidebarMenuSubItem>
-                        <Collapsible asChild className="group/comm-proc">
-                          <SidebarMenuSubItem>
-                            <CollapsibleTrigger asChild>
-                              <SidebarMenuSubButton className="w-full justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Wrench className="w-4 h-4 shrink-0" />
-                                  <span>Traitement</span>
-                                </div>
-                                <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/comm-proc:rotate-90" />
-                              </SidebarMenuSubButton>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <SidebarMenuSub className="ml-4 space-y-1">
-                                <SidebarMenuSubItem>
-                                  <SidebarMenuSubButton asChild isActive={pathname === "/commercial/processing/verifications"}>
-                                    <Link href="/commercial/processing/verifications">
-                                      <Eye className="w-4 h-4" />
-                                      <span>Vérifications</span>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                                <SidebarMenuSubItem>
-                                  <SidebarMenuSubButton asChild isActive={pathname === "/commercial/processing/complex"}>
-                                    <Link href="/commercial/processing/complex">
-                                      <AlertCircle className="w-4 h-4" />
-                                      <span>Cas complexes</span>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                                <SidebarMenuSubItem>
-                                  <SidebarMenuSubButton asChild isActive={pathname === "/commercial/processing/rejets"}>
-                                    <Link href="/commercial/processing/rejets">
-                                      <XCircle className="w-4 h-4" />
-                                      <span>Rejets</span>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              </SidebarMenuSub>
-                            </CollapsibleContent>
-                          </SidebarMenuSubItem>
-                        </Collapsible>
-                      </SidebarMenuSubItem>
-                      <SidebarMenuSubItem>
-                        <SidebarMenuSubButton asChild isActive={pathname === "/commercial/validation"}>
-                          <Link href="/commercial/validation">
-                            <CheckSquare className="w-4 h-4" />
-                            <span>{t("nav.validation")}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </SidebarMenuItem>
-              </Collapsible>
+              <SidebarMenuItem>
+                <Collapsible
+                  asChild
+                  open={openSection === "commercial"}
+                  onOpenChange={(open) => setOpenSection(open ? "commercial" : null)}
+                  className="group/commercial"
+                >
+                  <div>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton
+                        tooltip="Commercial"
+                        className={cn(
+                          "hover:bg-sidebar-accent/50",
+                          openSection === "commercial" && "bg-emerald-500/10"
+                        )}
+                      >
+                        <DollarSign className="w-4 h-4 text-emerald-500" />
+                        <span>Commercial</span>
+                        <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/commercial:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+
+                    <CollapsibleContent>
+                      <SidebarMenuSub className="ml-2 pl-2 border-l border-sidebar-border/50">
+                        <SidebarMenuSubItem>
+                          <Collapsible asChild className="group/comm-proc">
+                            <div className="w-full">
+                              <CollapsibleTrigger asChild>
+                                <SidebarMenuSubButton className="w-full justify-between hover:bg-sidebar-accent/40">
+                                  <div className="flex items-center gap-2">
+                                    <Wrench className="w-4 h-4 shrink-0" />
+                                    <span>Traitement</span>
+                                  </div>
+                                  <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/comm-proc:rotate-90" />
+                                </SidebarMenuSubButton>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <SidebarMenuSub className="ml-4 space-y-1">
+                                  <SidebarMenuSubItem>
+                                    <SidebarMenuSubButton
+                                      asChild
+                                      isActive={pathname === "/commercial/processing/verifications"}
+                                      className="hover:bg-sidebar-accent/40"
+                                    >
+                                      <Link href="/commercial/processing/verifications">
+                                        <Eye className="w-4 h-4" />
+                                        <span>Vérifications</span>
+                                      </Link>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                  <SidebarMenuSubItem>
+                                    <SidebarMenuSubButton
+                                      asChild
+                                      isActive={pathname === "/commercial/processing/complex"}
+                                      className="hover:bg-sidebar-accent/40"
+                                    >
+                                      <Link href="/commercial/processing/complex">
+                                        <AlertCircle className="w-4 h-4" />
+                                        <span>Cas complexes</span>
+                                      </Link>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                  <SidebarMenuSubItem>
+                                    <SidebarMenuSubButton
+                                      asChild
+                                      isActive={pathname === "/commercial/processing/rejets"}
+                                      className="hover:bg-sidebar-accent/40"
+                                    >
+                                      <Link href="/commercial/processing/rejets">
+                                        <XCircle className="w-4 h-4" />
+                                        <span>Rejets</span>
+                                      </Link>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                </SidebarMenuSub>
+                              </CollapsibleContent>
+                            </div>
+                          </Collapsible>
+                        </SidebarMenuSubItem>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton
+                            asChild
+                            isActive={pathname === "/commercial/validation"}
+                            className="hover:bg-sidebar-accent/40"
+                          >
+                            <Link href="/commercial/validation">
+                              <CheckSquare className="w-4 h-4" />
+                              <span>{t("nav.validation")}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </div>
+                </Collapsible>
+              </SidebarMenuItem>
 
               {/* Users */}
               {hasPermission("view:users") && (
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/users"} tooltip={t("nav.users")}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/users"}
+                    tooltip={t("nav.users")}
+                    className="hover:bg-sidebar-accent/50"
+                  >
                     <Link href="/users">
                       <Users className="w-4 h-4" />
                       <span>{t("nav.users")}</span>
@@ -310,7 +367,12 @@ export function AppSidebar() {
 
               {/* Notifications */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/notifications"} tooltip={t("nav.notifications")}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/notifications"}
+                  tooltip={t("nav.notifications")}
+                  className="hover:bg-sidebar-accent/50"
+                >
                   <Link href="/notifications" className="relative">
                     <Bell className="w-4 h-4" />
                     <span>{t("nav.notifications")}</span>
@@ -329,7 +391,12 @@ export function AppSidebar() {
               {/* Map */}
               {hasPermission("view:map") && (
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/map"} tooltip={t("nav.map")}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/map"}
+                    tooltip={t("nav.map")}
+                    className="hover:bg-sidebar-accent/50"
+                  >
                     <Link href="/map">
                       <Map className="w-4 h-4" />
                       <span>{t("nav.map")}</span>
@@ -350,7 +417,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuButton size="lg" className="w-full" tooltip={user?.firstName || "User"}>
+                <SidebarMenuButton size="lg" className="w-full hover:bg-sidebar-accent/50" tooltip={user?.firstName || "User"}>
                   <Avatar className="h-8 w-8 rounded-lg shrink-0">
                     <AvatarFallback className="rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-xs">
                       {getInitials(user?.firstName, user?.lastName)}
@@ -366,7 +433,7 @@ export function AppSidebar() {
                   </div>
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end" side="right" sideOffset={8}>
+              <DropdownMenuContent className="w-56" align="end" side="top" sideOffset={8}>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>

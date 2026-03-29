@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/lib/i18n/context";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,10 +20,7 @@ import {
 import { ResizableDivider } from "@/components/notifications/resizable-divider";
 import { useNotificationContext } from "@/lib/context/notification-context";
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Helper functions
-// ─────────────────────────────────────────────────────────────────────────────
-
 const getDateGroup = (date: Date, language: string): string => {
   if (isToday(date)) return language === "fr" ? "Aujourd'hui" : "Today";
   if (isYesterday(date)) return language === "fr" ? "Hier" : "Yesterday";
@@ -41,10 +39,6 @@ const getTimePeriodMs = (period: TimePeriod): number => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────────────────────────────────────
-
 export default function NotificationsPage() {
   const { language } = useI18n();
   const {
@@ -55,19 +49,37 @@ export default function NotificationsPage() {
     deleteNotification,
   } = useNotificationContext();
 
-  const [selectedNotification, setSelectedNotification] = useState<NotificationDetail | null>(null);
+  const searchParams = useSearchParams();
+  const notificationIdFromUrl = searchParams.get("notificationId");
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [leftWidth, setLeftWidth] = useState(35);
 
-  // Mark loading as complete as soon as notifications are available (mock data is synchronous)
+  // Derive selected notification from context (always fresh)
+  const selectedNotification = useMemo(() => {
+    if (!selectedId) return null;
+    return notifications.find(n => n.id === selectedId) || null;
+  }, [notifications, selectedId]);
+
   useEffect(() => {
-    // Small delay to avoid flicker; actually data is ready immediately
-    const timer = setTimeout(() => setIsLoading(false), 50);
+    const timer = setTimeout(() => setIsLoading(false), 100);
     return () => clearTimeout(timer);
   }, []);
+
+  // Handle URL parameter selection
+  useEffect(() => {
+    if (isLoading || notifications.length === 0) return;
+    if (notificationIdFromUrl) {
+      setSelectedId(notificationIdFromUrl);
+      setMobileShowDetail(true);
+      const found = notifications.find(n => n.id === notificationIdFromUrl);
+      if (found && !found.isRead) markAsRead(notificationIdFromUrl);
+    }
+  }, [notificationIdFromUrl, notifications, isLoading, markAsRead]);
 
   // Filtering
   const periodFiltered = useMemo(() => {
@@ -96,25 +108,19 @@ export default function NotificationsPage() {
     return groups;
   }, [filtered, language]);
 
-  // Handlers
   const handleSelectNotification = (notification: NotificationDetail) => {
-    setSelectedNotification(notification);
+    setSelectedId(notification.id);
     setMobileShowDetail(true);
     if (!notification.isRead) {
       markAsRead(notification.id);
     }
   };
 
-  const handleBack = () => {
-    setMobileShowDetail(false);
-  };
+  const handleBack = () => setMobileShowDetail(false);
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Left list panel (shared)
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── List panel (left) ────────────────────────────────────────────────────
   const ListPanel = (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
       <div className="border-b bg-card px-4 py-3 flex flex-col shrink-0">
         <div className="flex items-center gap-2 mb-2">
           <Bell className="h-5 w-5 text-primary" />
@@ -136,12 +142,7 @@ export default function NotificationsPage() {
         <div className="flex items-center gap-1.5">
           <PeriodFilter selected={timePeriod} onSelectPeriod={setTimePeriod} language={language} />
           {unreadCount > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={markAllAsRead}
-              className="gap-1 h-8 px-2"
-            >
+            <Button size="sm" variant="outline" onClick={markAllAsRead} className="gap-1 h-8 px-2">
               <Check className="h-3.5 w-3.5" />
               <span className="text-xs hidden sm:inline">
                 {language === "fr" ? "Tout lire" : "Mark all"}
@@ -151,7 +152,6 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="border-b p-3 shrink-0">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -164,7 +164,6 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Scrollable list */}
       <div className="flex-1 min-h-0">
         <ScrollArea className="h-full">
           {filtered.length === 0 ? (
@@ -182,7 +181,7 @@ export default function NotificationsPage() {
                   date={dateGroup}
                   notifications={notifs}
                   onSelect={handleSelectNotification}
-                  selectedId={selectedNotification?.id}
+                  selectedId={selectedId!}
                   language={language}
                 />
               ))}
@@ -193,9 +192,7 @@ export default function NotificationsPage() {
     </div>
   );
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Right detail panel (shared)
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── Detail panel (right) ─────────────────────────────────────────────────
   const DetailPanel = (
     <div className="flex flex-col h-full overflow-hidden bg-card">
       {selectedNotification ? (
@@ -216,16 +213,11 @@ export default function NotificationsPage() {
     </div>
   );
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Mobile: detail view with back button
-  // ───────────────────────────────────────────────────────────────────────────
+  // ─── Mobile detail view with back button ──────────────────────────────────
   const MobileDetailView = (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="border-b bg-card px-4 py-3 flex items-center gap-3 shrink-0">
-        <button
-          onClick={handleBack}
-          className="flex items-center gap-1.5 text-primary text-sm font-medium"
-        >
+        <button onClick={handleBack} className="flex items-center gap-1.5 text-primary text-sm font-medium">
           <ArrowLeft className="h-4 w-4" />
           {language === "fr" ? "Retour" : "Back"}
         </button>
@@ -234,7 +226,6 @@ export default function NotificationsPage() {
     </div>
   );
 
-  // Loading state
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center">
@@ -243,17 +234,11 @@ export default function NotificationsPage() {
     );
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Render
-  // ───────────────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* Mobile: slide between list and detail */}
       <div className="md:hidden h-screen flex flex-col overflow-hidden bg-background">
         {mobileShowDetail ? MobileDetailView : ListPanel}
       </div>
-
-      {/* Desktop: resizable split view */}
       <div className="hidden md:flex h-screen overflow-hidden bg-background">
         <ResizableDivider
           left={ListPanel}

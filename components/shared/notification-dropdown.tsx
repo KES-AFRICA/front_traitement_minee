@@ -86,7 +86,7 @@ export function NotificationDropdown() {
                 className="flex items-start gap-3 p-3 cursor-pointer"
                 onClick={() => {
                   markAsRead(notification.id);
-                  router.push("/notifications");
+                  router.push(`/notifications?notificationId=${notification.id}`);
                 }}
               >
                 <div className="mt-0.5">
