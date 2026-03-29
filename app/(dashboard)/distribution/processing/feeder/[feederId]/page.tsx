@@ -770,10 +770,12 @@ function TimerDisplay({ startTime }: { startTime: number | null }) {
   if (!startTime) return null;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
-      <Timer className="h-4 w-4 text-primary" />
+    <div className="flex items-center justify-center gap-2 px-3 py-1 rounded-lg bg-primary/10 border border-primary/20 w-full ">
+        <div className="flex items-center">
+                <Timer className="h-4 w-4 text-primary" />
       <span className="text-sm font-medium text-muted-foreground">Temps écoulé:</span>
       <span className="text-base font-bold text-primary font-mono tracking-wide">{elapsed}</span>
+        </div>
     </div>
   );
 }
@@ -1024,7 +1026,7 @@ export default function FeederProcessingPage() {
 
   const fetchProcessingAgents = async () => {
     try {
-      const response = await userService.getUsers({ role: "processing_agent" }, { pageSize: 100 });
+      const response = await userService.getUsers();
       if (response.data) {
         setProcessingAgents(response.data.data);
       }
@@ -1092,9 +1094,9 @@ export default function FeederProcessingPage() {
           </p>
         </div>
         <div className="flex flex-col md:flex-row gap-2 shrink-0">
-          <Button variant="outline" onClick={handleOpenAssignDialog} className="gap-2">
+          <Button variant="outline" onClick={handleOpenAssignDialog} className="gap-2 cursor-pointer">
             <UserCheck className="h-4 w-4" />
-            Assigner un agent
+            Assigner à un agent
           </Button>
           {!isTreatmentActive ? (
             <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700 hover:text-white cursor-pointer">
@@ -1107,15 +1109,17 @@ export default function FeederProcessingPage() {
               Terminer le traitement
             </Button>
           )}
+
+                {/* Timer */}
+          {isTreatmentActive && treatmentStartTime && (
+            <div className="flex">
+              <TimerDisplay startTime={treatmentStartTime} />
+            </div>
+          )}
+
         </div>
       </div>
 
-      {/* Timer */}
-      {isTreatmentActive && treatmentStartTime && (
-        <div className="flex justify-end">
-          <TimerDisplay startTime={treatmentStartTime} />
-        </div>
-      )}
 
       {/* KPI Cards avec filtres */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 sm:gap-3">

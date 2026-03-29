@@ -103,14 +103,14 @@ function makePopupHtml(eq: EquipmentRecord): string {
     .join("");
 
   return `
-    <div style="font-family:sans-serif;min-width:200px;max-width:280px">
+    <div style="font-family:sans-serif;min-width:200px;max-width:280px; heigth:auto">
       <div style="font-weight:700;font-size:13px;margin-bottom:4px;padding-bottom:4px;border-bottom:2px solid ${color};color:${color}">
         ${eq.name || eq.m_rid}
       </div>
       <div style="font-size:10px;background:#f5f5f5;padding:2px 8px;border-radius:4px;display:inline-block;margin-bottom:6px;color:#555">
         ${eq.table || "équipement"} — ${eq.m_rid}
       </div>
-      <div style="max-height:160px;overflow-y:auto">${rows}</div>
+      <div style="min-height:160px;overflow-y:auto">${rows}</div>
     </div>`;
 }
 
@@ -400,7 +400,7 @@ export default function FullscreenMap({
       {/* Plein écran */}
       <button
         onClick={toggleFullscreen}
-        className="absolute top-3 right-3 z-10 bg-white rounded-lg shadow-md p-2 hover:bg-gray-50 transition-colors"
+        className="absolute top-3 right-3 z-10 bg-white text-black rounded-lg shadow-md p-2 hover:bg-gray-50 transition-colors"
         aria-label={isFullscreen ? "Quitter le plein écran" : "Plein écran"}
       >
         {isFullscreen ? (
@@ -418,20 +418,20 @@ export default function FullscreenMap({
       <div className="absolute bottom-4 right-3 z-10">
         <button
           onClick={() => setIsLayerOpen((p) => !p)}
-          className="bg-white rounded-lg shadow-md px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 hover:bg-gray-50 transition-colors"
+          className="bg-white text-black rounded-lg shadow-md px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 hover:bg-gray-50 transition-colors"
         >
           <Satellite className="h-3.5 w-3.5" />
           {currentLayer === "street" ? "Carte" : "Satellite"}
           {isLayerOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </button>
         {isLayerOpen && (
-          <div className="absolute bottom-full right-0 mb-1 bg-white rounded-lg shadow-lg overflow-hidden min-w-[130px]">
+          <div className="absolute bottom-full right-0 mb-1 bg-white  rounded-lg shadow-lg overflow-hidden min-w-32.5">
             {(["street", "satellite"] as LayerType[]).map((l) => (
               <button
                 key={l}
                 onClick={() => handleLayerChange(l)}
                 className={`w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 transition-colors ${
-                  currentLayer === l ? "text-blue-600 font-medium" : ""
+                  currentLayer === l ? "text-blue-600 font-medium" : "text-black"
                 }`}
               >
                 {l === "street" ? "Carte (OSM)" : "Satellite"}

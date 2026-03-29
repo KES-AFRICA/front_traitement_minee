@@ -37,14 +37,6 @@ const routeConfig: Record<string, { label: string; href: string; parent?: string
   "/commercial/processing/rejets": { label: "Rejets", href: "/commercial/processing/rejets", parent: "commercial-processing" },
   "/commercial/validation": { label: "Validation", href: "/commercial/validation", parent: "commercial" },
   
-  // Génie civil
-  "genie-civil": { label: "Génie civil", href: "/genie-civil" },
-  "genie-civil-processing": { label: "Traitement", href: "/genie-civil/processing", parent: "genie-civil" },
-  "/genie-civil/processing/verifications": { label: "Vérifications", href: "/genie-civil/processing/verifications", parent: "genie-civil-processing" },
-  "/genie-civil/processing/complex": { label: "Cas complexes", href: "/genie-civil/processing/complex", parent: "genie-civil-processing" },
-  "/genie-civil/processing/rejets": { label: "Rejets", href: "/genie-civil/processing/rejets", parent: "genie-civil-processing" },
-  "/genie-civil/validation": { label: "Validation", href: "/genie-civil/validation", parent: "genie-civil" },
-  
   // Pages communes
   "/dashboard": { label: "Tableau de bord", href: "/dashboard" },
   "/users": { label: "Utilisateurs", href: "/users" },

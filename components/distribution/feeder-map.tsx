@@ -350,7 +350,7 @@ export default function FeederMap({ equipments, feederId, onMarkerClick }: Feede
         {/* Bouton plein écran */}
         <button
           onClick={toggleFullscreen}
-          className="absolute top-4 right-4 z-10 bg-white rounded-lg shadow-lg p-2 hover:bg-gray-100 transition-colors duration-200"
+          className="absolute top-4 right-4 z-10 text-black bg-white rounded-lg shadow-lg p-2 hover:bg-gray-100 transition-colors duration-200"
           style={{
             boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
             border: "none",
@@ -374,7 +374,7 @@ export default function FeederMap({ equipments, feederId, onMarkerClick }: Feede
           <div className="relative">
             <button
               onClick={() => setIsLayerOpen(!isLayerOpen)}
-              className="bg-white rounded-lg shadow-lg p-2 hover:bg-gray-100 transition-colors duration-200 flex items-center gap-2"
+              className="bg-white text-black rounded-lg shadow-lg p-2 hover:bg-gray-100 transition-colors duration-200 flex items-center gap-2"
               style={{
                 boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
                 border: "none",
@@ -402,7 +402,7 @@ export default function FeederMap({ equipments, feederId, onMarkerClick }: Feede
                 <button
                   onClick={() => handleLayerChange("street")}
                   className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-100 transition-colors ${
-                    currentLayer === "street" ? "bg-blue-50 text-blue-600" : ""
+                    currentLayer === "street" ? "bg-blue-50 text-blue-600" : "text-black"
                   }`}
                 >
                   <Map className="h-4 w-4" />
@@ -414,7 +414,7 @@ export default function FeederMap({ equipments, feederId, onMarkerClick }: Feede
                 <button
                   onClick={() => handleLayerChange("satellite")}
                   className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 hover:bg-gray-100 transition-colors ${
-                    currentLayer === "satellite" ? "bg-green-50 text-green-600" : ""
+                    currentLayer === "satellite" ? "bg-green-50 text-green-600" : "text-black"
                   }`}
                 >
                   <Satellite className="h-4 w-4" />

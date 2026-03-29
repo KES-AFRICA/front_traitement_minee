@@ -67,8 +67,8 @@ export default function SettingsPage() {
                 <Input id="phone" placeholder="+237 6XX XXX XXX" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="department">Département</Label>
-                <Input id="department" defaultValue="Direction des Systèmes d'Information" />
+                <Label htmlFor="company">Entreprise</Label>
+                <Input id="company" defaultValue="GROUPEMENT" />
               </div>
             </div>
             <Button>{t("common.save")}</Button>
