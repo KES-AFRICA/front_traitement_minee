@@ -2,16 +2,24 @@
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NotificationDetail } from "@/lib/api/notification-details-data";
-import { formatDistanceToNow } from "date-fns";
-import { fr, enUS } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
-interface NotificationListItemProps {
-  notification: NotificationDetail;
-  isSelected: boolean;
-  onClick: (notification: NotificationDetail) => void;
-  language: string;
-}
+const getCompactRelativeTime = (date: Date, language: string): string => {
+  const now = new Date();
+  const diffSeconds = (now.getTime() - date.getTime()) / 1000;
+
+  if (diffSeconds < 60) return language === "fr" ? "à l'instant" : "now";
+  if (diffSeconds < 3600) {
+    const minutes = Math.floor(diffSeconds / 60);
+    return `${minutes}min`;
+  }
+  if (diffSeconds < 86400) {
+    const hours = Math.floor(diffSeconds / 3600);
+    return `${hours}h`;
+  }
+  const days = Math.floor(diffSeconds / 86400);
+  return `${days}d`;
+};
 
 const getInitials = (text: string) => {
   return text
@@ -22,17 +30,20 @@ const getInitials = (text: string) => {
     .slice(0, 2);
 };
 
+interface NotificationListItemProps {
+  notification: NotificationDetail;
+  isSelected: boolean;
+  onClick: (notification: NotificationDetail) => void;
+  language: string;
+}
+
 export function NotificationListItem({
   notification,
   isSelected,
   onClick,
   language,
 }: NotificationListItemProps) {
-  const timeAgo = formatDistanceToNow(notification.timestamp, {
-    addSuffix: false,
-    locale: language === "fr" ? fr : enUS,
-  });
-
+  const timeAgo = getCompactRelativeTime(notification.timestamp, language);
   const initials = getInitials(notification.title);
 
   return (
@@ -62,20 +73,25 @@ export function NotificationListItem({
                 : "text-foreground/80"
             )}
           >
-              {notification.title.length > 25 ?  notification.title.substring(0,24)+"..." : notification.title}
+            {notification.title.length > 25
+              ? notification.title.substring(0, 24) + "..."
+              : notification.title}
           </p>
-          <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">
-            {timeAgo}
-          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              {timeAgo}
+            </span>
+            {!notification.isRead && (
+              <div className="w-2 h-2 rounded-full bg-primary" />
+            )}
+          </div>
         </div>
         <p className="text-xs text-muted-foreground truncate line-clamp-1">
-          {notification.description.length > 25 ?  notification.description.substring(0,24)+"..." : notification.description}
+          {notification.description.length > 25
+            ? notification.description.substring(0, 24) + "..."
+            : notification.description}
         </p>
       </div>
-
-      {!notification.isRead && (
-        <div className="w-2 h-2 rounded-full bg-primary shrink-0 self-center" />
-      )}
     </div>
   );
 }
