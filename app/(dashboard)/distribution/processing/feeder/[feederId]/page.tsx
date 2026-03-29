@@ -10,7 +10,7 @@ import {
   Copy, GitCompare, FilePlus, FileX, AlertCircle,
   CheckCircle2, ChevronRight, ChevronDown, Pencil,
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
-  Layers, Info, MapPin, Save, UserCheck, Users,
+  Layers, Info, MapPin, Save, UserCheck, Users, Filter,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +40,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import React from "react";
 import { userService } from "@/lib/api/services/users";
@@ -66,6 +73,7 @@ const FeederMap = dynamic(
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type AnomalyType = "duplicate" | "divergence" | "new" | "missing" | "complex";
+type EquipmentFilter = "all" | "ok" | AnomalyType;
 
 interface TreatmentState {
   [anomalyId: string]: {
@@ -84,14 +92,18 @@ interface EquipmentDetail {
   location?: { lat: number; lng: number };
 }
 
-// ─── KPI Config ───────────────────────────────────────────────────────────────
+// ─── KPI Config avec ajout du filtre "Tous" et "OK" ───────────────────────────
 const KPI_CONFIG = [
-  { type: "duplicate" as AnomalyType, label: "Doublons",    icon: Copy,        color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10",  activeBg: "bg-purple-500/15",  activeBorder: "border-purple-500/50"  },
-  { type: "divergence" as AnomalyType, label: "Divergences", icon: GitCompare,  color: "text-amber-600 dark:text-amber-400",   bg: "bg-amber-500/10",   activeBg: "bg-amber-500/15",   activeBorder: "border-amber-500/50"   },
-  { type: "new" as AnomalyType,       label: "Nouveaux",    icon: FilePlus,    color: "text-emerald-600 dark:text-emerald-400",bg: "bg-emerald-500/10", activeBg: "bg-emerald-500/15", activeBorder: "border-emerald-500/50" },
-  { type: "missing" as AnomalyType,   label: "Manquants",   icon: FileX,       color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10",  activeBg: "bg-orange-500/15",  activeBorder: "border-orange-500/50"  },
-  { type: "complex" as AnomalyType,   label: "Complexes",   icon: AlertCircle, color: "text-red-600 dark:text-red-400",       bg: "bg-red-500/10",     activeBg: "bg-red-500/15",     activeBorder: "border-red-500/50"     },
+  { type: "all" as const, label: "Tous", icon: Filter, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-500/10", activeBg: "bg-slate-500/15", activeBorder: "border-slate-500/50" },
+  { type: "ok" as const, label: "Conformes", icon: CheckCircle2, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", activeBg: "bg-emerald-500/15", activeBorder: "border-emerald-500/50" },
+  { type: "duplicate" as const, label: "Doublons", icon: Copy, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10", activeBg: "bg-purple-500/15", activeBorder: "border-purple-500/50" },
+  { type: "divergence" as const, label: "Divergences", icon: GitCompare, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", activeBg: "bg-amber-500/15", activeBorder: "border-amber-500/50" },
+  { type: "new" as const, label: "Nouveaux", icon: FilePlus, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", activeBg: "bg-emerald-500/15", activeBorder: "border-emerald-500/50" },
+  { type: "missing" as const, label: "Manquants", icon: FileX, color: "text-orange-600 dark:text-orange-400", bg: "bg-orange-500/10", activeBg: "bg-orange-500/15", activeBorder: "border-orange-500/50" },
+  { type: "complex" as const, label: "Complexes", icon: AlertCircle, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", activeBg: "bg-red-500/15", activeBorder: "border-red-500/50" },
 ] as const;
+
+type FilterType = typeof KPI_CONFIG[number]['type'];
 
 // ─── Icônes / labels par table ────────────────────────────────────────────────
 const TABLE_ICONS: Record<string, React.ElementType> = {
@@ -137,7 +149,7 @@ function AnomalyBadge({ type }: { type: AnomalyType }) {
   );
 }
 
-// ─── Dialog d'assignation ─────────────────────────────────────────────────────
+// ─── Dialog d'assignation (inchangé) ─────────────────────────────────────────
 function AssignDialog({
   isOpen,
   onClose,
@@ -253,7 +265,7 @@ function AssignDialog({
   );
 }
 
-// ─── Sheet pour les détails d'équipement ──────────────────────────────────────
+// ─── Sheet pour les détails d'équipement (inchangé, garder le code précédent) ───
 function EquipmentDetailSheet({
   equipment,
   isOpen,
@@ -272,8 +284,6 @@ function EquipmentDetailSheet({
   const [editedData, setEditedData] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
 
-  // TOUS LES HOOKS DOIVENT ÊTRE APPELÉS AVANT LES RETOURS CONDITIONNELS
-  // Calculer allFields même si equipment est null (ce sera un tableau vide)
   const allFields = useMemo(() => {
     if (!equipment) return [];
     return Object.keys(editedData)
@@ -281,14 +291,12 @@ function EquipmentDetailSheet({
       .sort();
   }, [equipment, editedData]);
 
-  // Initialiser editedData quand l'équipement change
   useEffect(() => {
     if (equipment) {
       setEditedData({ ...equipment.data });
     }
   }, [equipment]);
 
-  // Maintenant on peut faire le retour conditionnel
   if (!equipment) return null;
 
   const Icon = TABLE_ICONS[equipment.table] || Box;
@@ -344,7 +352,6 @@ function EquipmentDetailSheet({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-          {/* Placeholder central avec icône */}
           <div className="flex flex-col items-center justify-center py-6 border-b border-dashed border-border">
             <div className="w-24 h-24 rounded-full bg-muted/50 flex items-center justify-center mb-3">
               <Icon className="h-12 w-12 text-muted-foreground/50" />
@@ -355,7 +362,6 @@ function EquipmentDetailSheet({
             </p>
           </div>
 
-          {/* Anomalies associées */}
           {equipment.anomalies.length > 0 && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -379,7 +385,6 @@ function EquipmentDetailSheet({
             </div>
           )}
 
-          {/* Localisation */}
           {equipment.location && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -394,7 +399,6 @@ function EquipmentDetailSheet({
             </div>
           )}
 
-          {/* Tous les champs modifiables */}
           <div className="space-y-4">
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Données de l'équipement
@@ -460,7 +464,6 @@ function EquipmentDetailSheet({
             })}
           </div>
 
-          {/* Champs divergents spécifiques - affichage en plus */}
           {equipment.anomalies.some(a => a.type === "divergence") && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wider text-amber-600">
@@ -531,6 +534,7 @@ function EquipmentDetailSheet({
     </Sheet>
   );
 }
+
 // ─── Carte d'équipement (pour les bons équipements) ───────────────────────────
 function EquipmentCard({ equipment, onEquipmentClick }: {
   equipment: EquipmentDetail;
@@ -539,7 +543,6 @@ function EquipmentCard({ equipment, onEquipmentClick }: {
   const Icon = TABLE_ICONS[equipment.table] || Box;
   const iconColor = "text-primary";
   
-  // Afficher les 3 premiers champs importants
   const displayFields = ["name", "code", "type", "voltage", "active"].filter(f => equipment.data[f] !== undefined).slice(0, 3);
 
   return (
@@ -647,11 +650,12 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
   );
 }
 
-// ─── Groupe par table ─────────────────────────────────────────────────────────
-function TableGroup({ table, anomalies, goodEquipments, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen }: {
+// ─── Groupe par table avec filtrage amélioré ─────────────────────────────────
+function TableGroup({ table, allAnomalies, allGoodEquipments, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen }: {
   table: string; 
-  anomalies: AnomalyCase[]; 
-  goodEquipments: EquipmentDetail[];
+  allAnomalies: AnomalyCase[]; 
+  allGoodEquipments: EquipmentDetail[];
+  filter: FilterType;
   treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
   onMarkTreated: (id: string) => void;
@@ -660,9 +664,27 @@ function TableGroup({ table, anomalies, goodEquipments, treatment, onFieldChange
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const Icon = TABLE_ICONS[table] || Box;
-  const treatedCount = anomalies.filter((a) => treatment[a.id]?.treated).length;
-  const allDone = treatedCount === anomalies.length && anomalies.length > 0;
-  const totalCount = anomalies.length + goodEquipments.length;
+  
+  // Filtrer les anomalies selon le filtre actif
+  const filteredAnomalies = useMemo(() => {
+    if (filter === "all") return allAnomalies;
+    if (filter === "ok") return [];
+    return allAnomalies.filter((a) => a.type === filter);
+  }, [allAnomalies, filter]);
+  
+  // Filtrer les bons équipements selon le filtre actif
+  const filteredGoodEquipments = useMemo(() => {
+    if (filter === "all") return allGoodEquipments;
+    if (filter === "ok") return allGoodEquipments;
+    return [];
+  }, [allGoodEquipments, filter]);
+  
+  const treatedCount = filteredAnomalies.filter((a) => treatment[a.id]?.treated).length;
+  const allDone = treatedCount === filteredAnomalies.length && filteredAnomalies.length > 0;
+  const totalCount = filteredAnomalies.length + filteredGoodEquipments.length;
+  
+  // Ne pas afficher le groupe si aucun élément après filtrage
+  if (totalCount === 0) return null;
 
   return (
     <div className="rounded-xl border border-border overflow-hidden">
@@ -672,14 +694,14 @@ function TableGroup({ table, anomalies, goodEquipments, treatment, onFieldChange
         <Icon className="h-4 w-4 shrink-0 text-primary" />
         <span className="font-medium text-sm flex-1">{TABLE_LABELS[table] || table}</span>
         <span className="text-xs text-muted-foreground">
-          {goodEquipments.length} OK • {anomalies.length} anomalie{anomalies.length > 1 ? "s" : ""}
+          {filteredGoodEquipments.length} OK • {filteredAnomalies.length} anomalie{filteredAnomalies.length > 1 ? "s" : ""}
         </span>
-        {allDone && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
+        {allDone && filteredAnomalies.length > 0 && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
       </button>
       {open && (
         <div className="p-3 space-y-3">
-          {/* Équipements avec anomalies */}
-          {anomalies.map((a) => (
+          {/* Équipements avec anomalies filtrés */}
+          {filteredAnomalies.map((a) => (
             <AnomalyCard 
               key={a.id} 
               anomaly={a} 
@@ -690,8 +712,8 @@ function TableGroup({ table, anomalies, goodEquipments, treatment, onFieldChange
             />
           ))}
           
-          {/* Équipements bons */}
-          {goodEquipments.map((eq) => (
+          {/* Équipements bons filtrés */}
+          {filteredGoodEquipments.map((eq) => (
             <EquipmentCard key={eq.id} equipment={eq} onEquipmentClick={onEquipmentClick} />
           ))}
         </div>
@@ -707,7 +729,7 @@ export default function FeederProcessingPage() {
   const feederId = params?.feederId as string;
   const feederName = searchParams?.get("name") || feederId;
 
-  const [activeFilter, setActiveFilter] = useState<AnomalyType | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [treatment, setTreatment] = useState<TreatmentState>({});
   const [selectedEquipment, setSelectedEquipment] = useState<EquipmentDetail | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -815,50 +837,50 @@ export default function FeederProcessingPage() {
     };
   }, [feederId]);
 
-  const filteredAnomalies = useMemo(
-    () => activeFilter ? allAnomalies.filter((a) => a.type === activeFilter) : allAnomalies,
-    [allAnomalies, activeFilter]
-  );
+  // Calcul des comptes pour les KPI
+  const counts = useMemo(() => {
+    const result: Record<FilterType, number> = {
+      all: allEquipments.length,
+      ok: allEquipments.filter(eq => eq.anomalies.length === 0).length,
+      duplicate: allAnomalies.filter(a => a.type === "duplicate").length,
+      divergence: allAnomalies.filter(a => a.type === "divergence").length,
+      new: allAnomalies.filter(a => a.type === "new").length,
+      missing: allAnomalies.filter(a => a.type === "missing").length,
+      complex: allAnomalies.filter(a => a.type === "complex").length,
+    };
+    return result;
+  }, [allEquipments, allAnomalies]);
 
-  const counts = useMemo(
-    () => KPI_CONFIG.reduce((acc, cfg) => ({ ...acc, [cfg.type]: allAnomalies.filter((a) => a.type === cfg.type).length }), {} as Record<AnomalyType, number>),
-    [allAnomalies]
-  );
-
-// Points carte - TOUS les équipements de layer2DB géolocalisés du départ
-const mapPoints = useMemo(() => {
-  const points: EquipmentRecord[] = [];
-  
-  // Récupérer tous les équipements du feeder depuis layer2DB uniquement
-  const tables = ["substation", "powertransformer", "busbar", "bay", "switch", "wire", "pole", "node"];
-  
-  tables.forEach(table => {
-    const layer2Records = (layer2DB as any)[table] || [];
-    layer2Records.forEach((record: any) => {
-      // Vérifier que l'équipement appartient bien à ce feeder
-      if (String(record.feeder_id) === feederId) {
-        // Vérifier qu'il a des coordonnées valides
-        const lat = parseFloat(String(record.latitude ?? ""));
-        const lng = parseFloat(String(record.longitude ?? ""));
-        
-        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-          // Vérifier si cet équipement a une anomalie
-          const anomaly = allAnomalies.find(a => String(a.mrid) === String(record.m_rid));
+  // Points carte - TOUS les équipements de layer2DB géolocalisés du départ
+  const mapPoints = useMemo(() => {
+    const points: EquipmentRecord[] = [];
+    
+    const tables = ["substation", "powertransformer", "busbar", "bay", "switch", "wire", "pole", "node"];
+    
+    tables.forEach(table => {
+      const layer2Records = (layer2DB as any)[table] || [];
+      layer2Records.forEach((record: any) => {
+        if (String(record.feeder_id) === feederId) {
+          const lat = parseFloat(String(record.latitude ?? ""));
+          const lng = parseFloat(String(record.longitude ?? ""));
           
-          points.push({
-            ...record,
-            table,
-            _anomalyType: anomaly?.type,
-            _anomalyId: anomaly?.id,
-            _hasAnomaly: !!anomaly,
-          });
+          if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+            const anomaly = allAnomalies.find(a => String(a.mrid) === String(record.m_rid));
+            
+            points.push({
+              ...record,
+              table,
+              _anomalyType: anomaly?.type,
+              _anomalyId: anomaly?.id,
+              _hasAnomaly: !!anomaly,
+            });
+          }
         }
-      }
+      });
     });
-  });
-  
-  return points;
-}, [feederId, allAnomalies]);
+    
+    return points;
+  }, [feederId, allAnomalies]);
 
   const handleFieldChange = useCallback((id: string, field: string, val: string) => {
     setTreatment((prev) => ({
@@ -940,6 +962,20 @@ const mapPoints = useMemo(() => {
     </div>
   );
 
+  // Filtrer les groupes par table selon le filtre actif
+  const filteredTableGroups = useMemo(() => {
+    return Array.from(anomaliesByTable.entries()).map(([table, { anomalies, goods }]) => ({
+      table,
+      anomalies,
+      goods,
+      hasContent: activeFilter === "all" 
+        ? (anomalies.length + goods.length) > 0
+        : activeFilter === "ok"
+          ? goods.length > 0
+          : anomalies.filter(a => a.type === activeFilter).length > 0
+    })).filter(group => group.hasContent);
+  }, [anomaliesByTable, activeFilter]);
+
   return (
     <div className="w-full min-w-0 space-y-4 md:px-4 md:py-4 sm:px-6">
 
@@ -969,27 +1005,35 @@ const mapPoints = useMemo(() => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 sm:gap-3">
+      {/* KPI Cards avec filtres */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 sm:gap-3">
         {KPI_CONFIG.map((cfg) => {
           const count = counts[cfg.type];
           const isActive = activeFilter === cfg.type;
           const Icon = cfg.icon;
-          const treatedN = allAnomalies.filter((a) => a.type === cfg.type && treatment[a.id]?.treated).length;
+          
+          // Calculer le nombre traités pour les types d'anomalies
+          let treatedN = 0;
+          if (cfg.type !== "all" && cfg.type !== "ok") {
+            treatedN = allAnomalies.filter((a) => a.type === cfg.type && treatment[a.id]?.treated).length;
+          }
+          
           return (
-            <button key={cfg.type} onClick={() => setActiveFilter(isActive ? null : cfg.type)} disabled={count === 0}
+            <button key={cfg.type} onClick={() => setActiveFilter(isActive ? "all" : cfg.type)} disabled={count === 0}
               className={cn("flex flex-col gap-2 p-3 rounded-xl border text-left transition-all duration-200 active:scale-95",
                 isActive ? cn(cfg.activeBg, cfg.activeBorder) : "bg-card border-border hover:border-border",
                 count === 0 && "opacity-40 cursor-default pointer-events-none")}>
               <div className="flex items-center justify-between">
                 <div className={cn("p-1.5 rounded-lg", cfg.bg)}><Icon className={cn("h-3.5 w-3.5", cfg.color)} /></div>
-                {count > 0 && <span className="text-[9px] text-muted-foreground">{treatedN}/{count}</span>}
+                {cfg.type !== "all" && cfg.type !== "ok" && count > 0 && (
+                  <span className="text-[9px] text-muted-foreground">{treatedN}/{count}</span>
+                )}
               </div>
               <div>
                 <p className="text-2xl font-bold leading-none tabular-nums">{count}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">{cfg.label}</p>
               </div>
-              {count > 0 && (
+              {cfg.type !== "all" && cfg.type !== "ok" && count > 0 && (
                 <div className="w-full h-1 rounded-full bg-border overflow-hidden">
                   <div className="h-full rounded-full bg-emerald-500 transition-all duration-500"
                     style={{ width: `${(treatedN / count) * 100}%` }} />
@@ -1000,11 +1044,11 @@ const mapPoints = useMemo(() => {
         })}
       </div>
 
-      {activeFilter && (
+      {activeFilter !== "all" && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Info className="h-3.5 w-3.5" />
           <span>Filtré sur <strong className="text-foreground">{KPI_CONFIG.find((k) => k.type === activeFilter)?.label}</strong></span>
-          <button onClick={() => setActiveFilter(null)} className="text-primary hover:underline">Tout voir</button>
+          <button onClick={() => setActiveFilter("all")} className="text-primary hover:underline">Tout voir</button>
         </div>
       )}
 
@@ -1017,25 +1061,28 @@ const mapPoints = useMemo(() => {
         />
       </div>
 
-      {/* Équipements groupés par table */}
+      {/* Équipements groupés par table avec filtrage */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          {allEquipments.length} équipements
+          {activeFilter === "all" ? `${allEquipments.length} équipements` :
+           activeFilter === "ok" ? `${counts.ok} équipements conformes` :
+           `${counts[activeFilter]} anomalies de type ${KPI_CONFIG.find(k => k.type === activeFilter)?.label}`}
         </h2>
 
-        {allEquipments.length === 0 && (
+        {filteredTableGroups.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
             <Box className="h-8 w-8 opacity-50" />
-            <p className="text-sm">Aucun équipement trouvé pour ce départ</p>
+            <p className="text-sm">Aucun équipement trouvé pour ce filtre</p>
           </div>
         )}
 
-        {Array.from(anomaliesByTable.entries()).map(([table, { anomalies, goods }], idx) => (
+        {filteredTableGroups.map(({ table, anomalies, goods }, idx) => (
           <TableGroup 
             key={table} 
             table={table} 
-            anomalies={activeFilter ? filteredAnomalies.filter(a => a.table === table) : anomalies}
-            goodEquipments={goods}
+            allAnomalies={anomalies}
+            allGoodEquipments={goods}
+            filter={activeFilter}
             treatment={treatment}
             onFieldChange={handleFieldChange} 
             onMarkTreated={handleMarkTreated}

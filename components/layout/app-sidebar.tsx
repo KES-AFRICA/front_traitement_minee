@@ -118,7 +118,6 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <div className="flex flex-col group-data-[collapsible=icon]:hidden">
           <span className="font-bold text-sidebar-foreground tracking-tight">TADEC</span>
-          <span className="text-[10px] text-muted-foreground">Assets Platform</span>
         </div>
       </SidebarHeader>
 
