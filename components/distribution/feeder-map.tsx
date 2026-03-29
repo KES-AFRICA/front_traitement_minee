@@ -67,6 +67,7 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
   const mapRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const toggleFullscreen = () => {
@@ -102,9 +103,20 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    // Nettoyer l'instance précédente avant d'en créer une nouvelle
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+    
+    if (!mapRef.current) return;
+
+    let isMounted = true;
 
     import("leaflet").then((L) => {
+      if (!isMounted || !mapRef.current) return;
+
+      // Fix icônes par défaut Leaflet
       delete (L.Icon.Default.prototype as any)._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
@@ -112,6 +124,7 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
         shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
       });
 
+      // Créer la carte
       const map = L.map(mapRef.current!, {
         zoomControl: true,
         attributionControl: false,
@@ -126,7 +139,7 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
       mapInstanceRef.current = map;
 
       const points: [number, number][] = [];
-      const markers: any[] = [];
+      const newMarkers: any[] = [];
 
       substations.forEach((sub) => {
         const s = sub as SubstationRecord;
@@ -137,7 +150,7 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
           points.push([lat, lng]);
           const icon = createSVGIcon(s, L);
           const marker = L.marker([lat, lng], { icon }).addTo(map);
-
+          
           const popupContent = `
             <div style="font-family:sans-serif;min-width:160px">
               <div style="font-weight:600;font-size:13px;margin-bottom:4px">${s.name || s.m_rid}</div>
@@ -148,7 +161,6 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
                 <div>Lat : ${lat.toFixed(4)}, Lon : ${lng.toFixed(4)}</div>
               </div>
               <button 
-                id="marker-details-btn-${s.m_rid}"
                 style="margin-top:8px;padding:4px 8px;background:#6366f1;color:white;border:none;border-radius:4px;font-size:10px;cursor:pointer;width:100%"
                 onclick="window.__markerClickCallback && window.__markerClickCallback(${JSON.stringify(s).replace(/"/g, '&quot;')})"
               >
@@ -159,18 +171,20 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
           
           marker.bindPopup(popupContent);
           
-          // Ajouter un événement click direct sur le marqueur
+          // Ajouter un événement click direct
           marker.on('click', () => {
             if (onMarkerClick) {
               onMarkerClick(s);
             }
           });
           
-          markers.push({ marker, lat, lng, data: s });
+          newMarkers.push(marker);
         }
       });
 
-      // Définir le callback global pour les boutons dans les popups
+      markersRef.current = newMarkers;
+
+      // Définir le callback global
       if (typeof window !== 'undefined') {
         (window as any).__markerClickCallback = (sub: SubstationRecord) => {
           if (onMarkerClick) {
@@ -179,7 +193,7 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
         };
       }
 
-      // Tracer une ligne entre tous les points (ordre par latitude)
+      // Tracer une ligne entre les points
       if (points.length >= 2) {
         const sorted = [...points].sort((a, b) => b[0] - a[0]);
         L.polyline(sorted, {
@@ -221,17 +235,21 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
     });
 
     return () => {
+      isMounted = false;
+      // Nettoyer le callback global
       if (typeof window !== 'undefined') {
         delete (window as any).__markerClickCallback;
       }
+      // Nettoyer la carte
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
+      markersRef.current = [];
     };
   }, [substations, onMarkerClick]);
 
-  // Mettre à jour les markers si les substations changent
+  // Ajouter le CSS Leaflet
   useEffect(() => {
     const link = document.querySelector<HTMLLinkElement>('link[href*="leaflet"]');
     if (!link) {
@@ -244,25 +262,16 @@ export default function FeederMap({ substations, feederId, onMarkerClick }: Feed
 
   return (
     <>
-      <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
-      />
       <div 
         ref={containerRef} 
-        className="relative"
-        style={{ 
-          width: "100%", 
-          height: "100%",
-          position: "relative"
-        }}
+        className="relative w-full h-full"
       >
         <div
           ref={mapRef}
-          style={{ width: "100%", height: "100%" }}
-          className="z-0"
+          className="w-full h-full z-0"
         />
         
+        {/* Bouton plein écran */}
         <button
           onClick={toggleFullscreen}
           className="absolute top-4 right-4 z-10 bg-white rounded-lg shadow-lg p-2 hover:bg-gray-100 transition-colors duration-200"

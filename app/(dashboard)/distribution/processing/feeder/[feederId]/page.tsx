@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
@@ -10,13 +10,13 @@ import {
   Copy, GitCompare, FilePlus, FileX, AlertCircle,
   CheckCircle2, ChevronRight, ChevronDown, Pencil,
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
-  Layers, Info, MapPin, Save,
+  Layers, Info, MapPin, Save, UserCheck, Users,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Sheet,
   SheetContent,
@@ -32,8 +32,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import React from "react";
+import { userService } from "@/lib/api/services/users";
+import { User } from "@/lib/api/types";
+import { layer1DB } from "@/data/layer1";
+import { layer2DB } from "@/data/layer2";
 
 // ─── Leaflet client-only ──────────────────────────────────────────────────────
 const FeederMap = dynamic(
@@ -113,46 +125,6 @@ const fv = (v: unknown): string => {
 const recTitle = (r: Record<string, unknown> | null) =>
   r ? String(r.name || r.local_name || r.code || r.m_rid || "—") : "—";
 
-const allKeys = (r1: Record<string, unknown> | null, r2: Record<string, unknown> | null) => {
-  const s = new Set<string>();
-  if (r1) Object.keys(r1).forEach((k) => s.add(k));
-  if (r2) Object.keys(r2).forEach((k) => s.add(k));
-  return Array.from(s).filter((k) => k !== "m_rid").sort();
-};
-
-// ─── Champ éditable ───────────────────────────────────────────────────────────
-function EditableField({ value, original, onChange }: {
-  value: string; original: string; onChange: (v: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const dirty = value !== original;
-
-  if (editing) return (
-    <div className="flex items-center gap-1 min-w-0">
-      <Input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { onChange(draft); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
-        className="h-6 text-xs px-1.5 py-0 font-mono" />
-      <button onClick={() => { onChange(draft); setEditing(false); }} className="p-0.5 rounded bg-emerald-500/15">
-        <Check className="h-3 w-3 text-emerald-600" />
-      </button>
-      <button onClick={() => setEditing(false)} className="p-0.5 rounded hover:bg-muted">
-        <X className="h-3 w-3 text-muted-foreground" />
-      </button>
-    </div>
-  );
-
-  return (
-    <div className="flex items-center gap-1.5 group/ef min-w-0">
-      <span className={cn("text-xs font-mono break-all", dirty && "text-amber-600 dark:text-amber-400 font-semibold")}>{value || "—"}</span>
-      {dirty && <span className="text-[10px] text-muted-foreground line-through shrink-0">{original}</span>}
-      <button onClick={() => { setDraft(value); setEditing(true); }} className="invisible group-hover/ef:visible ml-auto p-0.5 rounded hover:bg-muted shrink-0">
-        <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
-      </button>
-    </div>
-  );
-}
-
 // ─── Badge anomalie ───────────────────────────────────────────────────────────
 function AnomalyBadge({ type }: { type: AnomalyType }) {
   const cfg = KPI_CONFIG.find((k) => k.type === type)!;
@@ -164,6 +136,123 @@ function AnomalyBadge({ type }: { type: AnomalyType }) {
   );
 }
 
+// ─── Dialog d'assignation ─────────────────────────────────────────────────────
+function AssignDialog({
+  isOpen,
+  onClose,
+  onAssign,
+  feederName,
+  processingAgents,
+  isAssigning,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAssign: (agentId: string, agentName: string) => void;
+  feederName: string;
+  processingAgents: User[];
+  isAssigning: boolean;
+}) {
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+
+  const getInitials = (firstName: string, lastName: string) => {
+    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  };
+
+  const handleAssign = () => {
+    if (!selectedAgentId) {
+      toast.warning("Veuillez sélectionner un agent");
+      return;
+    }
+    const selectedAgent = processingAgents.find(agent => agent.id === selectedAgentId);
+    if (selectedAgent) {
+      onAssign(selectedAgentId, `${selectedAgent.firstName} ${selectedAgent.lastName}`);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCheck className="h-5 w-5 text-primary" />
+            Assigner un agent
+          </DialogTitle>
+          <DialogDescription>
+            Assignez ce départ à un agent de traitement pour analyse des anomalies.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Départ concerné</Label>
+            <div className="p-3 bg-muted/30 rounded-lg">
+              <p className="font-medium text-sm">{feederName}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="agent">Sélectionner un agent de traitement</Label>
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger id="agent" className="w-full">
+                <SelectValue placeholder="Choisir un agent..." />
+              </SelectTrigger>
+              <SelectContent>
+                {processingAgents.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Aucun agent disponible
+                  </SelectItem>
+                ) : (
+                  processingAgents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getInitials(agent.firstName, agent.lastName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>
+                          {agent.firstName} {agent.lastName}
+                        </span>
+                        <div className="ml-2 py-1 px-2 border rounded-md text-xs">
+                          {agent.company}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter className="flex gap-2 sm:gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose} disabled={isAssigning}>
+            Annuler
+          </Button>
+          <Button
+            onClick={handleAssign}
+            disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
+            className="flex-1 bg-purple-600 hover:bg-purple-700"
+          >
+            {isAssigning ? (
+              <>
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                Assignation...
+              </>
+            ) : (
+              <>
+                <UserCheck className="h-4 w-4 mr-2" />
+                Assigner
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Sheet pour les détails d'équipement ──────────────────────────────────────
 // ─── Sheet pour les détails d'équipement ──────────────────────────────────────
 function EquipmentDetailSheet({
   equipment,
@@ -183,40 +272,46 @@ function EquipmentDetailSheet({
   const [editedData, setEditedData] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
 
+  // TOUS LES HOOKS DOIVENT ÊTRE APPELÉS AVANT LES RETOURS CONDITIONNELS
+  // Calculer allFields même si equipment est null (ce sera un tableau vide)
+  const allFields = useMemo(() => {
+    if (!equipment) return [];
+    return Object.keys(editedData)
+      .filter(k => k !== "m_rid" && k !== "_anomalyType" && k !== "_anomalyId" && k !== "_table")
+      .sort();
+  }, [equipment, editedData]);
+
   // Initialiser editedData quand l'équipement change
-  useMemo(() => {
+  useEffect(() => {
     if (equipment) {
       setEditedData({ ...equipment.data });
     }
   }, [equipment]);
 
+  // Maintenant on peut faire le retour conditionnel
   if (!equipment) return null;
 
   const Icon = TABLE_ICONS[equipment.table] || Box;
   const iconColor = "text-primary";
 
-  // Champs importants à afficher/modifier
-  const importantFields = [
-    "name", "code", "type", "voltage", "active", "phase",
-    "apparent_power", "localisation", "regime", "section",
-    "nature_conducteur", "height", "latitude", "longitude",
-    "w1_voltage", "w2_voltage", "exploitation", "zone_type",
-  ];
-
-  const getFieldInputType = (field: string): "text" | "number" | "select" => {
-    if (field === "active" || field === "is_injection" || field === "is_feederhead" || field === "normal_open") {
+  const getFieldInputType = (field: string, value: unknown): "text" | "number" | "select" | "textarea" => {
+    if (field === "active" || field === "is_injection" || field === "is_feederhead" || field === "normal_open" || field === "display_scada") {
       return "select";
     }
     if (field === "voltage" || field === "apparent_power" || field === "height" || 
-        field === "w1_voltage" || field === "w2_voltage" || field === "highest_voltage_level") {
+        field === "w1_voltage" || field === "w2_voltage" || field === "highest_voltage_level" ||
+        field === "latitude" || field === "longitude") {
       return "number";
+    }
+    if (field === "localisation" || field === "description" || field === "observation") {
+      return "textarea";
     }
     return "text";
   };
 
-const handleFieldChange = (field: string, value: string | number | boolean) => {
-  setEditedData((prev) => ({ ...prev, [field]: value }));
-};
+  const handleFieldChange = (field: string, value: string | number | boolean) => {
+    setEditedData((prev) => ({ ...prev, [field]: value }));
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -249,6 +344,17 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+          {/* Placeholder central avec icône */}
+          <div className="flex flex-col items-center justify-center py-6 border-b border-dashed border-border">
+            <div className="w-24 h-24 rounded-full bg-muted/50 flex items-center justify-center mb-3">
+              <Icon className="h-12 w-12 text-muted-foreground/50" />
+            </div>
+            <p className="text-xs text-muted-foreground text-center">
+              {equipment.name}<br />
+              <span className="text-[10px]">ID: {equipment.mrid}</span>
+            </p>
+          </div>
+
           {/* Anomalies associées */}
           {equipment.anomalies.length > 0 && (
             <div className="space-y-2">
@@ -288,19 +394,19 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
             </div>
           )}
 
-          {/* Champs modifiables */}
+          {/* Tous les champs modifiables */}
           <div className="space-y-4">
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Données de l'équipement
             </Label>
             
-            {importantFields.map((field) => {
+            {allFields.map((field) => {
               const value = editedData[field];
               if (value === undefined) return null;
               
               const originalValue = equipment.data[field];
               const isModified = String(value) !== String(originalValue);
-              const inputType = getFieldInputType(field);
+              const inputType = getFieldInputType(field, value);
               
               return (
                 <div key={field} className="space-y-1.5">
@@ -316,7 +422,7 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
                       value={String(value)}
                       onValueChange={(v) => handleFieldChange(field, v === "true" || v === "oui" || v === "Oui")}
                     >
-                      <SelectTrigger className="h-8 text-sm">
+                      <SelectTrigger className="h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -324,12 +430,23 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
                         <SelectItem value="false">Non / Inactif</SelectItem>
                       </SelectContent>
                     </Select>
+                  ) : inputType === "textarea" ? (
+                    <textarea
+                      value={String(value)}
+                      onChange={(e) => handleFieldChange(field, e.target.value)}
+                      className={cn(
+                        "w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                        isModified && "border-amber-500"
+                      )}
+                      rows={3}
+                    />
                   ) : (
                     <Input
                       type={inputType}
                       value={String(value)}
                       onChange={(e) => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                      className={cn("h-8 text-sm", isModified && "border-amber-500 focus-visible:ring-amber-500")}
+                      className={cn("h-9 text-sm", isModified && "border-amber-500 focus-visible:ring-amber-500")}
                     />
                   )}
                   
@@ -343,11 +460,11 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
             })}
           </div>
 
-          {/* Champs divergents spécifiques */}
+          {/* Champs divergents spécifiques - affichage en plus */}
           {equipment.anomalies.some(a => a.type === "divergence") && (
             <div className="space-y-2">
               <Label className="text-xs font-semibold uppercase tracking-wider text-amber-600">
-                Champs en divergence
+                Champs en divergence (BD1 vs BD2)
               </Label>
               {equipment.anomalies
                 .filter(a => a.type === "divergence" && a.divergentFields)
@@ -363,21 +480,25 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
                         <span className="text-sm font-medium">{fl(field.field)}</span>
                         <AnomalyBadge type="divergence" />
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="grid grid-cols-2 gap-3 text-xs">
                         <div>
-                          <p className="text-muted-foreground">BD1 (Référence)</p>
-                          <p className="font-mono line-through text-muted-foreground">{fv(field.layer1Value)}</p>
+                          <p className="text-muted-foreground mb-1">BD1 (Référence)</p>
+                          <p className="font-mono p-2 rounded bg-muted/30 line-through text-muted-foreground">
+                            {fv(field.layer1Value)}
+                          </p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">BD2 (Terrain)</p>
+                          <p className="text-muted-foreground mb-1">BD2 (Terrain)</p>
                           {anomalyId ? (
-                            <EditableField
+                            <Input
                               value={currentValue}
-                              original={fv(field.layer2Value)}
-                              onChange={(val) => onFieldChange(anomalyId, field.field, val)}
+                              onChange={(e) => onFieldChange(anomalyId, field.field, e.target.value)}
+                              className="h-8 text-sm font-mono border-amber-500"
                             />
                           ) : (
-                            <p className="font-mono text-amber-600">{fv(field.layer2Value)}</p>
+                            <p className="font-mono p-2 rounded bg-amber-500/10 text-amber-600">
+                              {fv(field.layer2Value)}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -410,6 +531,43 @@ const handleFieldChange = (field: string, value: string | number | boolean) => {
     </Sheet>
   );
 }
+// ─── Carte d'équipement (pour les bons équipements) ───────────────────────────
+function EquipmentCard({ equipment, onEquipmentClick }: {
+  equipment: EquipmentDetail;
+  onEquipmentClick?: (equipment: EquipmentDetail) => void;
+}) {
+  const Icon = TABLE_ICONS[equipment.table] || Box;
+  const iconColor = "text-primary";
+  
+  // Afficher les 3 premiers champs importants
+  const displayFields = ["name", "code", "type", "voltage", "active"].filter(f => equipment.data[f] !== undefined).slice(0, 3);
+
+  return (
+    <div 
+      onClick={() => onEquipmentClick?.(equipment)}
+      className="rounded-xl border border-border bg-card cursor-pointer hover:shadow-md hover:border-primary/50 transition-all"
+    >
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/40">
+        <Icon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
+        <span className="text-xs font-semibold truncate flex-1">{equipment.name}</span>
+        <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200">
+          <CheckCircle2 className="h-2.5 w-2.5 mr-1" />
+          OK
+        </Badge>
+      </div>
+      <div className="p-2">
+        <div className="grid grid-cols-2 gap-1 text-[11px]">
+          {displayFields.map((field) => (
+            <div key={field}>
+              <span className="text-muted-foreground">{fl(field)}</span>
+              <p className="font-mono truncate">{fv(equipment.data[field])}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Carte d'anomalie ─────────────────────────────────────────────────────────
 function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick }: {
@@ -423,10 +581,13 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
   const Icon = TABLE_ICONS[anomaly.table] || Box;
   const rec1 = anomaly.layer1Record;
   const rec2 = anomaly.layer2Record;
-  const divergentFields = new Set((anomaly.divergentFields ?? []).map((f) => f.field));
-  const keys = useMemo(() => allKeys(rec1, rec2), [rec1, rec2]);
+  const keys = useMemo(() => {
+    const s = new Set<string>();
+    if (rec1) Object.keys(rec1).forEach(k => s.add(k));
+    if (rec2) Object.keys(rec2).forEach(k => s.add(k));
+    return Array.from(s).filter(k => k !== "m_rid").sort();
+  }, [rec1, rec2]);
 
-  // Créer un objet EquipmentDetail pour le clic
   const equipmentDetail: EquipmentDetail | null = useMemo(() => {
     const record = rec2 ?? rec1;
     if (!record) return null;
@@ -451,20 +612,17 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
       )}
       onClick={() => equipmentDetail && onEquipmentClick?.(equipmentDetail)}
     >
-      {/* En-tête */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-border/40">
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="text-xs font-semibold truncate flex-1">{TABLE_LABELS[anomaly.table] || anomaly.table} — {recTitle(rec2 ?? rec1)}</span>
         <span className="text-[10px] font-mono text-muted-foreground">{anomaly.mrid}</span>
         <AnomalyBadge type={anomaly.type} />
         {isTreated && (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600">
             <CheckCircle2 className="h-2.5 w-2.5" />Traité
           </span>
         )}
       </div>
-
-      {/* Corps - aperçu */}
       <div className="p-3">
         <div className="grid grid-cols-2 gap-2 text-xs">
           {keys.slice(0, 4).map((k) => (
@@ -474,13 +632,11 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
             </div>
           ))}
         </div>
-        
-        {/* Bouton Marquer traité */}
         {!isTreated && (
           <div className="flex justify-end pt-2 mt-2 border-t border-border/40">
             <button 
               onClick={(e) => { e.stopPropagation(); onMarkTreated(anomaly.id); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Check className="h-3.5 w-3.5" />Marquer traité
             </button>
@@ -492,8 +648,11 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
 }
 
 // ─── Groupe par table ─────────────────────────────────────────────────────────
-function TableGroup({ table, anomalies, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen }: {
-  table: string; anomalies: AnomalyCase[]; treatment: TreatmentState;
+function TableGroup({ table, anomalies, goodEquipments, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen }: {
+  table: string; 
+  anomalies: AnomalyCase[]; 
+  goodEquipments: EquipmentDetail[];
+  treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
   onMarkTreated: (id: string) => void;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
@@ -502,7 +661,8 @@ function TableGroup({ table, anomalies, treatment, onFieldChange, onMarkTreated,
   const [open, setOpen] = useState(defaultOpen);
   const Icon = TABLE_ICONS[table] || Box;
   const treatedCount = anomalies.filter((a) => treatment[a.id]?.treated).length;
-  const allDone = treatedCount === anomalies.length;
+  const allDone = treatedCount === anomalies.length && anomalies.length > 0;
+  const totalCount = anomalies.length + goodEquipments.length;
 
   return (
     <div className="rounded-xl border border-border overflow-hidden">
@@ -511,11 +671,14 @@ function TableGroup({ table, anomalies, treatment, onFieldChange, onMarkTreated,
         {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <Icon className="h-4 w-4 shrink-0 text-primary" />
         <span className="font-medium text-sm flex-1">{TABLE_LABELS[table] || table}</span>
-        <span className="text-xs text-muted-foreground">{treatedCount}/{anomalies.length}</span>
+        <span className="text-xs text-muted-foreground">
+          {goodEquipments.length} OK • {anomalies.length} anomalie{anomalies.length > 1 ? "s" : ""}
+        </span>
         {allDone && <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />}
       </button>
       {open && (
         <div className="p-3 space-y-3">
+          {/* Équipements avec anomalies */}
           {anomalies.map((a) => (
             <AnomalyCard 
               key={a.id} 
@@ -525,6 +688,11 @@ function TableGroup({ table, anomalies, treatment, onFieldChange, onMarkTreated,
               onMarkTreated={onMarkTreated}
               onEquipmentClick={onEquipmentClick}
             />
+          ))}
+          
+          {/* Équipements bons */}
+          {goodEquipments.map((eq) => (
+            <EquipmentCard key={eq.id} equipment={eq} onEquipmentClick={onEquipmentClick} />
           ))}
         </div>
       )}
@@ -543,22 +711,114 @@ export default function FeederProcessingPage() {
   const [treatment, setTreatment] = useState<TreatmentState>({});
   const [selectedEquipment, setSelectedEquipment] = useState<EquipmentDetail | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [processingAgents, setProcessingAgents] = useState<User[]>([]);
+  const [isAssigning, setIsAssigning] = useState(false);
 
-  const allAnomalies = useMemo(() => getAnomaliesByFeeder(feederId), [feederId]);
+  // Récupérer tous les équipements du feeder
+  const { allAnomalies, allEquipments, goodEquipmentsByTable, anomaliesByTable } = useMemo(() => {
+    // Récupérer les anomalies
+    const anomalies = getAnomaliesByFeeder(feederId);
+    
+    // Construire tous les équipements du feeder depuis layer1 et layer2
+    const equipmentMap = new Map<string, EquipmentDetail>();
+    
+    // Fonction pour ajouter un équipement
+    const addEquipment = (record: Record<string, any>, table: string, anomaly?: AnomalyCase) => {
+      if (!record) return;
+      const id = String(record.m_rid);
+      if (!equipmentMap.has(id)) {
+        equipmentMap.set(id, {
+          id,
+          mrid: record.m_rid,
+          table: table,
+          name: recTitle(record),
+          data: { ...record },
+          anomalies: anomaly ? [anomaly] : [],
+          location: (record.latitude && record.longitude) ? {
+            lat: parseFloat(String(record.latitude)),
+            lng: parseFloat(String(record.longitude)),
+          } : undefined,
+        });
+      } else {
+        const existing = equipmentMap.get(id)!;
+        existing.data = { ...existing.data, ...record };
+        if (anomaly && !existing.anomalies.some(a => a.id === anomaly.id)) {
+          existing.anomalies.push(anomaly);
+        }
+        if (!existing.location && record.latitude && record.longitude) {
+          existing.location = {
+            lat: parseFloat(String(record.latitude)),
+            lng: parseFloat(String(record.longitude)),
+          };
+        }
+      }
+    };
+    
+    // Ajouter les équipements des anomalies
+    anomalies.forEach(anomaly => {
+      if (anomaly.layer2Record) {
+        addEquipment(anomaly.layer2Record, anomaly.table, anomaly);
+      }
+      if (anomaly.layer1Record && !anomaly.layer2Record) {
+        addEquipment(anomaly.layer1Record, anomaly.table, anomaly);
+      }
+    });
+    
+    // Ajouter les équipements de layer2DB pour les bons équipements (sans anomalies)
+    const tables = ["substation", "powertransformer", "busbar", "bay", "switch", "wire"];
+    tables.forEach(table => {
+      const layer2Records = (layer2DB as any)[table] || [];
+      layer2Records.forEach((record: any) => {
+        if (String(record.feeder_id) === feederId) {
+          const id = String(record.m_rid);
+          if (!equipmentMap.has(id)) {
+            addEquipment(record, table);
+          }
+        }
+      });
+    });
+    
+    // Ajouter les équipements de layer1DB pour les manquants
+    tables.forEach(table => {
+      const layer1Records = (layer1DB as any)[table] || [];
+      layer1Records.forEach((record: any) => {
+        if (String(record.feeder_id) === feederId) {
+          const id = String(record.m_rid);
+          if (!equipmentMap.has(id)) {
+            addEquipment(record, table);
+          }
+        }
+      });
+    });
+    
+    const equipments = Array.from(equipmentMap.values());
+    
+    // Séparer par table
+    const byTable = new Map<string, { anomalies: AnomalyCase[]; goods: EquipmentDetail[] }>();
+    equipments.forEach(eq => {
+      if (!byTable.has(eq.table)) {
+        byTable.set(eq.table, { anomalies: [], goods: [] });
+      }
+      if (eq.anomalies.length > 0) {
+        byTable.get(eq.table)!.anomalies.push(...eq.anomalies);
+      } else {
+        byTable.get(eq.table)!.goods.push(eq);
+      }
+    });
+    
+    return {
+      allAnomalies: anomalies,
+      allEquipments: equipments,
+      anomaliesByTable: byTable,
+      goodEquipmentsByTable: byTable,
+    };
+  }, [feederId]);
 
   const filteredAnomalies = useMemo(
     () => activeFilter ? allAnomalies.filter((a) => a.type === activeFilter) : allAnomalies,
     [allAnomalies, activeFilter]
   );
-
-  const byTable = useMemo(() => {
-    const map = new Map<string, AnomalyCase[]>();
-    for (const a of filteredAnomalies) {
-      if (!map.has(a.table)) map.set(a.table, []);
-      map.get(a.table)!.push(a);
-    }
-    return map;
-  }, [filteredAnomalies]);
 
   const counts = useMemo(
     () => KPI_CONFIG.reduce((acc, cfg) => ({ ...acc, [cfg.type]: allAnomalies.filter((a) => a.type === cfg.type).length }), {} as Record<AnomalyType, number>),
@@ -568,22 +828,15 @@ export default function FeederProcessingPage() {
   // Points carte
   const mapPoints = useMemo(() => {
     const seen = new Set<string>();
-    return allAnomalies
-      .filter((a) => a.table === "substation")
-      .reduce<Record<string, unknown>[]>((acc, a) => {
-        const rec = a.layer2Record ?? a.layer1Record;
-        if (!rec) return acc;
-        const key = String(rec.m_rid);
-        if (seen.has(key)) return acc;
-        const lat = parseFloat(String(rec.latitude ?? ""));
-        const lng = parseFloat(String(rec.longitude ?? ""));
-        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-          seen.add(key);
-          acc.push({ ...rec, _anomalyType: a.type, _anomalyId: a.id, _table: a.table });
-        }
-        return acc;
-      }, []);
-  }, [allAnomalies]);
+    return allEquipments
+      .filter((eq) => eq.table === "substation" && eq.location)
+      .map((eq) => ({
+        ...eq.data,
+        _anomalyType: eq.anomalies[0]?.type,
+        _anomalyId: eq.anomalies[0]?.id,
+        _table: eq.table,
+      }));
+  }, [allEquipments]);
 
   const handleFieldChange = useCallback((id: string, field: string, val: string) => {
     setTreatment((prev) => ({
@@ -603,14 +856,11 @@ export default function FeederProcessingPage() {
   }, []);
 
   const handleEquipmentSave = useCallback((equipment: EquipmentDetail, updatedData: Record<string, unknown>) => {
-    // Ici, tu peux implémenter la sauvegarde des données modifiées
-    // Pour l'instant, on met à jour le traitement local
     console.log("Sauvegarde équipement:", equipment.id, updatedData);
     toast.success(`${equipment.name} sauvegardé`);
   }, []);
 
   const handleMapMarkerClick = useCallback((equipment: any) => {
-    // Construire l'équipement à partir des données du marqueur
     const equipmentDetail: EquipmentDetail = {
       id: String(equipment.m_rid),
       mrid: equipment.m_rid,
@@ -627,6 +877,36 @@ export default function FeederProcessingPage() {
     setIsSheetOpen(true);
   }, [allAnomalies]);
 
+  const fetchProcessingAgents = async () => {
+    try {
+      const response = await userService.getUsers({ role: "processing_agent" }, { pageSize: 100 });
+      if (response.data) {
+        setProcessingAgents(response.data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch processing agents:", error);
+      toast.error("Impossible de charger la liste des agents");
+    }
+  };
+
+  const handleOpenAssignDialog = async () => {
+    await fetchProcessingAgents();
+    setIsAssignDialogOpen(true);
+  };
+
+  const handleAssign = async (agentId: string, agentName: string) => {
+    setIsAssigning(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      toast.success(`Départ ${feederName} assigné à ${agentName}`);
+      setIsAssignDialogOpen(false);
+    } catch (error) {
+      toast.error("Erreur lors de l'assignation");
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
   const allTreated = useMemo(
     () => allAnomalies.length > 0 && allAnomalies.every((a) => treatment[a.id]?.treated),
     [allAnomalies, treatment]
@@ -641,7 +921,7 @@ export default function FeederProcessingPage() {
   return (
     <div className="w-full min-w-0 space-y-4 px-4 py-4 sm:px-6">
 
-      {/* En-tête */}
+      {/* En-tête avec bouton assigner */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -649,16 +929,22 @@ export default function FeederProcessingPage() {
             <h1 className="text-lg font-bold truncate sm:text-xl">{feederName}</h1>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Traitement · <span className="font-medium text-foreground">{allAnomalies.length}</span>{" "}
-            anomalie{allAnomalies.length > 1 ? "s" : ""} (BD1 vs BD2)
+            Traitement · <span className="font-medium text-foreground">{allEquipments.length}</span> équipements ·{" "}
+            <span className="font-medium text-foreground">{allAnomalies.length}</span> anomalie{allAnomalies.length > 1 ? "s" : ""}
           </p>
         </div>
-        {allTreated && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 w-fit shrink-0">
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Prêt pour la validation</span>
-          </div>
-        )}
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={handleOpenAssignDialog} className="gap-2">
+            <UserCheck className="h-4 w-4" />
+            Assigner un agent
+          </Button>
+          {allTreated && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <span className="text-sm font-semibold text-emerald-600">Prêt pour la validation</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -709,23 +995,31 @@ export default function FeederProcessingPage() {
         />
       </div>
 
-      {/* Anomalies groupées par table */}
+      {/* Équipements groupés par table */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          {filteredAnomalies.length === 0 ? "Aucune anomalie" : `${filteredAnomalies.length} anomalie${filteredAnomalies.length > 1 ? "s" : ""}`}
+          {allEquipments.length} équipements
         </h2>
 
-        {filteredAnomalies.length === 0 && (
+        {allEquipments.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
-            <CheckCircle2 className="h-8 w-8 text-emerald-500/40" />
-            <p className="text-sm">Aucune anomalie pour ce filtre</p>
+            <Box className="h-8 w-8 opacity-50" />
+            <p className="text-sm">Aucun équipement trouvé pour ce départ</p>
           </div>
         )}
 
-        {Array.from(byTable.entries()).map(([table, anomalies], idx) => (
-          <TableGroup key={table} table={table} anomalies={anomalies} treatment={treatment}
-            onFieldChange={handleFieldChange} onMarkTreated={handleMarkTreated}
-            onEquipmentClick={handleEquipmentClick} defaultOpen={idx === 0} />
+        {Array.from(anomaliesByTable.entries()).map(([table, { anomalies, goods }], idx) => (
+          <TableGroup 
+            key={table} 
+            table={table} 
+            anomalies={activeFilter ? filteredAnomalies.filter(a => a.table === table) : anomalies}
+            goodEquipments={goods}
+            treatment={treatment}
+            onFieldChange={handleFieldChange} 
+            onMarkTreated={handleMarkTreated}
+            onEquipmentClick={handleEquipmentClick} 
+            defaultOpen={idx === 0} 
+          />
         ))}
       </div>
 
@@ -737,6 +1031,16 @@ export default function FeederProcessingPage() {
         onSave={handleEquipmentSave}
         treatment={treatment}
         onFieldChange={handleFieldChange}
+      />
+
+      {/* Dialog d'assignation */}
+      <AssignDialog
+        isOpen={isAssignDialogOpen}
+        onClose={() => setIsAssignDialogOpen(false)}
+        onAssign={handleAssign}
+        feederName={feederName}
+        processingAgents={processingAgents}
+        isAssigning={isAssigning}
       />
     </div>
   );
