@@ -324,7 +324,7 @@ export function NotificationDetailView({
       </div>
 
       {/* Contenu principal */}
-      <div className="overflow-y-auto p-5 space-y-6">
+      <div className="overflow-y-auto p-5 space-y-6 scrollbar-hide">
         {/* Description */}
         <Card className="p-4 bg-muted/30 border-0">
           <p className="text-sm leading-relaxed">{notification.description}</p>

@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { PeriodFilter, TimePeriod } from "@/components/notifications/period-filter";
 import { NotificationDetailView } from "@/components/notifications/notification-detail-view";
 import { NotificationGroup } from "@/components/notifications/notification-group";
-import { NotificationDetail, getAllNotifications } from "@/lib/api/notification-details-data";
+import { NotificationDetail } from "@/lib/api/notification-details-data";
 import { Search, Bell, Check, ArrowLeft } from "lucide-react";
 import {
   isToday,
@@ -17,6 +17,11 @@ import {
   isThisMonth,
 } from "date-fns";
 import { ResizableDivider } from "@/components/notifications/resizable-divider";
+import { useNotificationContext } from "@/lib/context/notification-context";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper functions
+// ─────────────────────────────────────────────────────────────────────────────
 
 const getDateGroup = (date: Date, language: string): string => {
   if (isToday(date)) return language === "fr" ? "Aujourd'hui" : "Today";
@@ -36,10 +41,20 @@ const getTimePeriodMs = (period: TimePeriod): number => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function NotificationsPage() {
   const { language } = useI18n();
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+  } = useNotificationContext();
 
-  const [notifications, setNotifications] = useState<NotificationDetail[]>([]);
   const [selectedNotification, setSelectedNotification] = useState<NotificationDetail | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("all");
@@ -47,13 +62,14 @@ export default function NotificationsPage() {
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const [leftWidth, setLeftWidth] = useState(35);
 
+  // Mark loading as complete as soon as notifications are available (mock data is synchronous)
   useEffect(() => {
-    const allNotifications = getAllNotifications();
-    setNotifications(allNotifications);
-    setSelectedNotification(null);
-    setIsLoading(false);
+    // Small delay to avoid flicker; actually data is ready immediately
+    const timer = setTimeout(() => setIsLoading(false), 50);
+    return () => clearTimeout(timer);
   }, []);
 
+  // Filtering
   const periodFiltered = useMemo(() => {
     if (timePeriod === "all") return notifications;
     const cutoff = Date.now() - getTimePeriodMs(timePeriod);
@@ -80,15 +96,12 @@ export default function NotificationsPage() {
     return groups;
   }, [filtered, language]);
 
+  // Handlers
   const handleSelectNotification = (notification: NotificationDetail) => {
     setSelectedNotification(notification);
     setMobileShowDetail(true);
     if (!notification.isRead) {
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n.id === notification.id ? { ...n, isRead: true } : n
-        )
-      );
+      markAsRead(notification.id);
     }
   };
 
@@ -96,46 +109,12 @@ export default function NotificationsPage() {
     setMobileShowDetail(false);
   };
 
-  const handleMarkAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-    );
-    if (selectedNotification?.id === id) {
-      setSelectedNotification({ ...selectedNotification, isRead: true });
-    }
-  };
-
-  const handleMarkAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    if (selectedNotification) {
-      setSelectedNotification({ ...selectedNotification, isRead: true });
-    }
-  };
-
-  const handleDelete = (id: string) => {
-    setNotifications((prev) => {
-      const newList = prev.filter((n) => n.id !== id);
-      if (selectedNotification?.id === id) {
-        setSelectedNotification(newList[0] || null);
-        setMobileShowDetail(false);
-      }
-      return newList;
-    });
-  };
-
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
-
-  if (isLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-      </div>
-    );
-  }
-
-  // Shared list panel – fixed scrolling
+  // ───────────────────────────────────────────────────────────────────────────
+  // Left list panel (shared)
+  // ───────────────────────────────────────────────────────────────────────────
   const ListPanel = (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
       <div className="border-b bg-card px-4 py-3 flex flex-col shrink-0">
         <div className="flex items-center gap-2 mb-2">
           <Bell className="h-5 w-5 text-primary" />
@@ -157,7 +136,12 @@ export default function NotificationsPage() {
         <div className="flex items-center gap-1.5">
           <PeriodFilter selected={timePeriod} onSelectPeriod={setTimePeriod} language={language} />
           {unreadCount > 0 && (
-            <Button size="sm" variant="outline" onClick={handleMarkAllAsRead} className="gap-1 h-8 px-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={markAllAsRead}
+              className="gap-1 h-8 px-2"
+            >
               <Check className="h-3.5 w-3.5" />
               <span className="text-xs hidden sm:inline">
                 {language === "fr" ? "Tout lire" : "Mark all"}
@@ -167,6 +151,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
+      {/* Search */}
       <div className="border-b p-3 shrink-0">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -179,7 +164,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Fixed: wrapper div with flex-1 min-h-0 to give ScrollArea a proper height */}
+      {/* Scrollable list */}
       <div className="flex-1 min-h-0">
         <ScrollArea className="h-full">
           {filtered.length === 0 ? (
@@ -208,14 +193,16 @@ export default function NotificationsPage() {
     </div>
   );
 
-  // Shared detail panel
+  // ───────────────────────────────────────────────────────────────────────────
+  // Right detail panel (shared)
+  // ───────────────────────────────────────────────────────────────────────────
   const DetailPanel = (
     <div className="flex flex-col h-full overflow-hidden bg-card">
       {selectedNotification ? (
         <NotificationDetailView
           notification={selectedNotification}
-          onMarkAsRead={handleMarkAsRead}
-          onDelete={handleDelete}
+          onMarkAsRead={markAsRead}
+          onDelete={deleteNotification}
           language={language}
         />
       ) : (
@@ -229,7 +216,9 @@ export default function NotificationsPage() {
     </div>
   );
 
-  // Mobile detail view with back button
+  // ───────────────────────────────────────────────────────────────────────────
+  // Mobile: detail view with back button
+  // ───────────────────────────────────────────────────────────────────────────
   const MobileDetailView = (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="border-b bg-card px-4 py-3 flex items-center gap-3 shrink-0">
@@ -245,12 +234,26 @@ export default function NotificationsPage() {
     </div>
   );
 
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Render
+  // ───────────────────────────────────────────────────────────────────────────
   return (
     <>
+      {/* Mobile: slide between list and detail */}
       <div className="md:hidden h-screen flex flex-col overflow-hidden bg-background">
         {mobileShowDetail ? MobileDetailView : ListPanel}
       </div>
 
+      {/* Desktop: resizable split view */}
       <div className="hidden md:flex h-screen overflow-hidden bg-background">
         <ResizableDivider
           left={ListPanel}

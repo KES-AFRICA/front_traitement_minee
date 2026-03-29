@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth/context";
 import { useI18n } from "@/lib/i18n/context";
+import { useNotificationContext } from "@/lib/context/notification-context"; // import
 import {
   Sidebar,
   SidebarContent,
@@ -59,22 +60,12 @@ const roleLabels: Record<string, string> = {
   processing_agent: "Agent de traitement",
 };
 
-function useUnreadNotificationsCount() {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    setCount(3);
-    const interval = setInterval(() => setCount(3), 30000);
-    return () => clearInterval(interval);
-  }, []);
-  return count;
-}
-
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, hasPermission } = useAuth();
   const { t } = useI18n();
-  const unreadCount = useUnreadNotificationsCount();
+  const { unreadCount } = useNotificationContext(); // real count from context
 
   // Feeder sélectionné dans la sidebar (partagé entre traitement/validation)
   const [selectedFeederId, setSelectedFeederId] = useState<string | number | undefined>();
