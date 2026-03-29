@@ -16,6 +16,7 @@ import {
   isThisWeek,
   isThisMonth,
 } from "date-fns";
+import { ResizableDivider } from "@/components/notifications/resizable-divider";
 
 const getDateGroup = (date: Date, language: string): string => {
   if (isToday(date)) return language === "fr" ? "Aujourd'hui" : "Today";
@@ -43,13 +44,13 @@ export default function NotificationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("all");
   const [isLoading, setIsLoading] = useState(true);
-  // Mobile: true = showing detail view, false = showing list
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(35);
 
   useEffect(() => {
     const allNotifications = getAllNotifications();
     setNotifications(allNotifications);
-    setSelectedNotification(allNotifications[0] || null);
+    setSelectedNotification(null);
     setIsLoading(false);
   }, []);
 
@@ -132,12 +133,11 @@ export default function NotificationsPage() {
     );
   }
 
-  // ─── Shared list panel ────────────────────────────────────────────────────
+  // Shared list panel – fixed scrolling
   const ListPanel = (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* List header */}
       <div className="border-b bg-card px-4 py-3 flex flex-col shrink-0">
-        <div className="flex items-center gap-2  mb-2">
+        <div className="flex items-center gap-2 mb-2">
           <Bell className="h-5 w-5 text-primary" />
           <div>
             <h1 className="font-semibold text-foreground text-sm leading-tight">
@@ -167,7 +167,6 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="border-b p-3 shrink-0">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -180,34 +179,36 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* List */}
-      <ScrollArea className="flex-1">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center px-4">
-            <Bell className="h-12 w-12 opacity-20 mb-2" />
-            <p className="text-sm">
-              {language === "fr" ? "Aucune notification" : "No notifications"}
-            </p>
-          </div>
-        ) : (
-          <div>
-            {Object.entries(grouped).map(([dateGroup, notifs]) => (
-              <NotificationGroup
-                key={dateGroup}
-                date={dateGroup}
-                notifications={notifs}
-                onSelect={handleSelectNotification}
-                selectedId={selectedNotification?.id}
-                language={language}
-              />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
+      {/* Fixed: wrapper div with flex-1 min-h-0 to give ScrollArea a proper height */}
+      <div className="flex-1 min-h-0">
+        <ScrollArea className="h-full">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground text-center px-4">
+              <Bell className="h-12 w-12 opacity-20 mb-2" />
+              <p className="text-sm">
+                {language === "fr" ? "Aucune notification" : "No notifications"}
+              </p>
+            </div>
+          ) : (
+            <div>
+              {Object.entries(grouped).map(([dateGroup, notifs]) => (
+                <NotificationGroup
+                  key={dateGroup}
+                  date={dateGroup}
+                  notifications={notifs}
+                  onSelect={handleSelectNotification}
+                  selectedId={selectedNotification?.id}
+                  language={language}
+                />
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </div>
     </div>
   );
 
-  // ─── Shared detail panel ──────────────────────────────────────────────────
+  // Shared detail panel
   const DetailPanel = (
     <div className="flex flex-col h-full overflow-hidden bg-card">
       {selectedNotification ? (
@@ -228,7 +229,7 @@ export default function NotificationsPage() {
     </div>
   );
 
-  // ─── Mobile detail header with back button ────────────────────────────────
+  // Mobile detail view with back button
   const MobileDetailView = (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="border-b bg-card px-4 py-3 flex items-center gap-3 shrink-0">
@@ -240,30 +241,25 @@ export default function NotificationsPage() {
           {language === "fr" ? "Retour" : "Back"}
         </button>
       </div>
-      <div className="flex-1 overflow-hidden">
-        {DetailPanel}
-      </div>
+      <div className="flex-1 overflow-hidden">{DetailPanel}</div>
     </div>
   );
 
   return (
     <>
-      {/* ── MOBILE layout (< md): WhatsApp-style slide between list & detail ── */}
       <div className="md:hidden h-screen flex flex-col overflow-hidden bg-background">
         {mobileShowDetail ? MobileDetailView : ListPanel}
       </div>
 
-      {/* ── DESKTOP layout (≥ md) ────────────── */}
       <div className="hidden md:flex h-screen overflow-hidden bg-background">
-        {/* Left panel */}
-        <div className="w-1.7/4 min-w-0 border-r flex flex-col overflow-hidden">
-          {ListPanel}
-        </div>
-
-        {/* Right panel */}
-        <div className="w-2.3/4 min-w-0 flex flex-col overflow-hidden">
-          {DetailPanel}
-        </div>
+        <ResizableDivider
+          left={ListPanel}
+          right={DetailPanel}
+          onResize={setLeftWidth}
+          minLeft={20}
+          maxLeft={80}
+          initialLeftWidth={leftWidth}
+        />
       </div>
     </>
   );

@@ -4,15 +4,11 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import {
   Bell,
   CheckCircle,
-  AlertCircle,
   MessageCircle,
-  Archive,
   User,
   MapPin,
   Calendar,
@@ -21,7 +17,6 @@ import {
   FilePlus,
   FileX,
   Clock,
-  Check,
   X,
   MoreHorizontal,
 } from "lucide-react";
@@ -299,16 +294,13 @@ export function NotificationDetailView({
             </div>
           </div>
           <div className="flex gap-2">
-            {!notification.isRead && (
-              <Button size="sm" variant="outline" onClick={() => onMarkAsRead(notification.id)} className="gap-1.5">
-                <Check className="h-4 w-4" />
-                {language === "fr" ? "Marquer comme lu" : "Mark as read"}
+            {notification.action && (
+              <Button asChild size="sm" className="gap-1.5">
+                <a href={notification.action.url} target="_blank" rel="noopener noreferrer">
+                  {notification.action.label}
+                </a>
               </Button>
             )}
-            <Button size="sm" variant="ghost" onClick={() => onDelete(notification.id)} className="gap-1.5 text-muted-foreground">
-              <Archive className="h-4 w-4" />
-              {language === "fr" ? "Archiver" : "Archive"}
-            </Button>
           </div>
         </div>
 
@@ -411,17 +403,6 @@ export function NotificationDetailView({
 
         {/* Métadonnées supplémentaires */}
         <MetadataBlock metadata={notification.metadata} />
-
-        {/* Lien d'action */}
-        {notification.action && (
-          <div className="pt-2">
-            <Button asChild className="w-full sm:w-auto">
-              <a href={notification.action.url} target="_blank" rel="noopener noreferrer">
-                {notification.action.label}
-              </a>
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );
