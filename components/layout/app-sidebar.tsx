@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth/context";
 import { useI18n } from "@/lib/i18n/context";
@@ -31,29 +31,26 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
-  Database,
   CheckSquare,
   Users,
   Map,
   Settings,
   LogOut,
   ChevronRight,
-  FileX,
   User,
-  AlertCircle,
   Bell,
   DollarSign,
-  Building2,
-  Copy,
-  GitCompare,
-  FilePlus,
   Zap,
   Eye,
   XCircle,
+  AlertCircle,
+  Wrench,
+  ShieldCheck,
 } from "lucide-react";
+import { EneoDeparture, EneoRegion, EneoZone } from "@/lib/api/eneo-data";
+import { DistributionTree } from "../distribution/distribution-tree";
 
 const roleLabels: Record<string, string> = {
   admin: "Administrateur",
@@ -62,125 +59,66 @@ const roleLabels: Record<string, string> = {
   processing_agent: "Agent de traitement",
 };
 
-const sectionColors: Record<string, { icon: string; bg: string }> = {
-  Distribution: { icon: "text-blue-500", bg: "bg-blue-500/10" },
-  Commercial: { icon: "text-emerald-500", bg: "bg-emerald-500/10" },
-  "Génie civil": { icon: "text-amber-500", bg: "bg-amber-500/10" },
-};
-
 function useUnreadNotificationsCount() {
   const [count, setCount] = useState(0);
-  
   useEffect(() => {
-    const fetchUnreadCount = async () => {
-      try {
-        const mockUnreadCount = 3;
-        setCount(mockUnreadCount);
-      } catch (error) {
-        console.error("Erreur:", error);
-      }
-    };
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
+    setCount(3);
+    const interval = setInterval(() => setCount(3), 30000);
     return () => clearInterval(interval);
   }, []);
-  
   return count;
 }
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout, hasPermission } = useAuth();
   const { t } = useI18n();
-  const unreadNotificationsCount = useUnreadNotificationsCount();
+  const unreadCount = useUnreadNotificationsCount();
 
-  const mainNavItems = [
-    {
-      title: t("nav.dashboard"),
-      url: "/dashboard",
-      icon: LayoutDashboard,
-      permission: "view:dashboard",
-    },
-    {
-      title: "Distribution",
-      icon: Zap,
-      items: [
-        {
-          title: "Traitement",
-          icon: Database,
-          items: [
-            { title: t("nav.duplicates"), url: "/distribution/processing/duplicates", icon: Copy },
-            { title: t("nav.differences"), url: "/distribution/processing/differences", icon: GitCompare },
-            { title: t("nav.newKobo"), url: "/distribution/processing/new-kobo", icon: FilePlus },
-            { title: t("nav.missingEneo"), url: "/distribution/processing/missing-eneo", icon: FileX },
-            { title: t("nav.complexCases"), url: "/distribution/processing/complex", icon: AlertCircle },
-          ],
-        },
-        { title: t("nav.validation"), url: "/distribution/validation", icon: CheckSquare },
-      ],
-    },
-    {
-      title: "Commercial",
-      icon: DollarSign,
-      items: [
-        {
-          title: "Traitement",
-          icon: Database,
-          items: [
-            { title: "Vérifications", url: "/commercial/processing/verifications", icon: Eye },
-            { title: "Cas complexes", url: "/commercial/processing/complex", icon: AlertCircle },
-            { title: "Rejets", url: "/commercial/processing/rejets", icon: XCircle },
-          ],
-        },
-        { title: t("nav.validation"), url: "/commercial/validation", icon: CheckSquare },
-      ],
-    },
-    {
-      title: t("nav.users"),
-      url: "/users",
-      icon: Users,
-      permission: "view:users",
-    },
-    {
-      title: t("nav.notifications"),
-      url: "/notifications",
-      icon: Bell,
-    },
-    {
-      title: t("nav.map"),
-      url: "/map",
-      icon: Map,
-      permission: "view:map",
-    },
-  ];
+  // Feeder sélectionné dans la sidebar (partagé entre traitement/validation)
+  const [selectedFeederId, setSelectedFeederId] = useState<string | number | undefined>();
 
-  const filteredNavItems = mainNavItems.filter(
-    (item) => !item.permission || hasPermission(item.permission)
-  );
+  // Lire le feeder depuis l'URL si on est déjà sur une page feeder
+  useEffect(() => {
+    const match = pathname.match(/\/distribution\/(processing|validation)\/feeder\/([^/]+)/);
+    if (match) setSelectedFeederId(match[2]);
+  }, [pathname]);
 
-  const getInitials = (firstName?: string, lastName?: string) => {
-    return `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase();
+  const handleFeederSelectProcessing = (
+    dep: EneoDeparture,
+    region: EneoRegion,
+    zone: EneoZone
+  ) => {
+    setSelectedFeederId(dep.feederId);
+    router.push(
+      `/distribution/processing/feeder/${dep.feederId}?name=${encodeURIComponent(dep.name)}`
+    );
   };
 
-  const shouldBeOpen = (item: any) => {
-    if (item.url && pathname === item.url) return true;
-    if (item.items) {
-      return item.items.some((sub: any) => {
-        if (sub.url && pathname === sub.url) return true;
-        if (sub.items) {
-          return sub.items.some((subSub: any) => pathname === subSub.url);
-        }
-        return false;
-      });
-    }
-    return false;
+  const handleFeederSelectValidation = (
+    dep: EneoDeparture,
+    region: EneoRegion,
+    zone: EneoZone
+  ) => {
+    setSelectedFeederId(dep.feederId);
+    router.push(
+      `/distribution/validation/feeder/${dep.feederId}?name=${encodeURIComponent(dep.name)}`
+    );
   };
+
+  const getInitials = (firstName?: string, lastName?: string) =>
+    `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase();
+
+  const isDistribProcessing = pathname.startsWith("/distribution/processing");
+  const isDistribValidation = pathname.startsWith("/distribution/validation");
 
   return (
     <Sidebar collapsible="icon" className="border-sidebar-border">
       <SidebarHeader className="p-4">
         <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-          <span className="font-bold text-sidebar-foreground">TADEC</span>
+          <span className="font-bold text-sidebar-foreground tracking-tight">TADEC</span>
+          <span className="text-[10px] text-muted-foreground">Assets Platform</span>
         </div>
       </SidebarHeader>
 
@@ -189,103 +127,227 @@ export function AppSidebar() {
       <SidebarContent className="overflow-y-auto flex-1 min-h-0">
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu className="pb-4">
-              {filteredNavItems.map((item) => {
-                if (item.items) {
-                  const isOpen = shouldBeOpen(item);
-                  const sectionColor = sectionColors[item.title];
-                  
-                  return (
-                    <Collapsible key={item.title} asChild defaultOpen={isOpen} className="group/collapsible">
-                      <SidebarMenuItem>
-                        <CollapsibleTrigger asChild>
-                          <SidebarMenuButton
-                            tooltip={item.title}
-                            className={cn(
-                              sectionColor?.bg,
-                            )}
-                          >
-                            <item.icon className={cn("w-4 h-4", sectionColor?.icon)} />
-                            <span>{item.title}</span>
-                            <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                          </SidebarMenuButton>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenuSub>
-                            {item.items.map((subItem) => {
-                              if (subItem.items) {
-                                const isSubOpen = shouldBeOpen(subItem);
-                                
-                                return (
-                                  <Collapsible key={subItem.title} asChild defaultOpen={isSubOpen} className="group/sub-collapsible">
-                                    <SidebarMenuSubItem>
-                                      <CollapsibleTrigger asChild>
-                                        <SidebarMenuSubButton className="w-full justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <subItem.icon className="w-4 h-4 shrink-0" />
-                                            <span>{subItem.title}</span>
-                                          </div>
-                                          <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/sub-collapsible:rotate-90" />
-                                        </SidebarMenuSubButton>
-                                      </CollapsibleTrigger>
-                                      <CollapsibleContent>
-                                        <SidebarMenuSub className="ml-4 space-y-1">
-                                          {subItem.items.map((subSubItem) => (
-                                            <SidebarMenuSubItem key={subSubItem.url}>
-                                              <SidebarMenuSubButton asChild isActive={pathname === subSubItem.url}>
-                                                <Link href={subSubItem.url}>
-                                                  <subSubItem.icon className="w-4 h-4" />
-                                                  <span>{subSubItem.title}</span>
-                                                </Link>
-                                              </SidebarMenuSubButton>
-                                            </SidebarMenuSubItem>
-                                          ))}
-                                        </SidebarMenuSub>
-                                      </CollapsibleContent>
-                                    </SidebarMenuSubItem>
-                                  </Collapsible>
-                                );
-                              }
-                              
-                              return (
-                                <SidebarMenuSubItem key={subItem.url}>
-                                  <SidebarMenuSubButton asChild isActive={pathname === subItem.url}>
-                                    <Link href={subItem.url!}>
-                                      <subItem.icon className="w-4 h-4" />
-                                      <span>{subItem.title}</span>
+            <SidebarMenu className="pb-2 gap-0.5">
+
+              {/* Dashboard */}
+              {hasPermission("view:dashboard") && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/dashboard"} tooltip="Tableau de bord">
+                    <Link href="/dashboard">
+                      <LayoutDashboard className="w-4 h-4" />
+                      <span>{t("nav.dashboard")}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+
+              {/* ── Distribution ──────────────────────────────────────── */}
+              <Collapsible
+                asChild
+                defaultOpen={isDistribProcessing || isDistribValidation}
+                className="group/distrib"
+              >
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      tooltip="Distribution"
+                      className="bg-blue-500/10 hover:bg-blue-500/15"
+                    >
+                      <Zap className="w-4 h-4 text-blue-500" />
+                      <span>Distribution</span>
+                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/distrib:rotate-90" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent>
+                    <SidebarMenuSub className="gap-0">
+
+                      {/* ── Traitement ── */}
+                      <SidebarMenuSubItem>
+                        <Collapsible
+                          asChild
+                          defaultOpen={isDistribProcessing}
+                          className="group/proc"
+                        >
+                          <div className="w-full">
+                            <CollapsibleTrigger asChild>
+                              <SidebarMenuSubButton className="w-full justify-between font-medium">
+                                <div className="flex items-center gap-2">
+                                  <Wrench className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Traitement</span>
+                                </div>
+                                <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/proc:rotate-90" />
+                              </SidebarMenuSubButton>
+                            </CollapsibleTrigger>
+
+                            <CollapsibleContent>
+                              {/* Arbre dynamique Région → Exploitation → Feeder */}
+                              <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
+                                {/* Vue collapsed de la sidebar : masquer l'arbre */}
+                                <div className="group-data-[collapsible=icon]:hidden">
+                                  <DistributionTree
+                                    mode="processing"
+                                    selectedFeederId={selectedFeederId}
+                                    onFeederSelect={handleFeederSelectProcessing}
+                                  />
+                                </div>
+                              </div>
+                            </CollapsibleContent>
+                          </div>
+                        </Collapsible>
+                      </SidebarMenuSubItem>
+
+                      {/* ── Validation ── */}
+                      <SidebarMenuSubItem>
+                        <Collapsible
+                          asChild
+                          defaultOpen={isDistribValidation}
+                          className="group/valid"
+                        >
+                          <div className="w-full">
+                            <CollapsibleTrigger asChild>
+                              <SidebarMenuSubButton className="w-full justify-between font-medium">
+                                <div className="flex items-center gap-2">
+                                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Validation</span>
+                                </div>
+                                <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/valid:rotate-90" />
+                              </SidebarMenuSubButton>
+                            </CollapsibleTrigger>
+
+                            <CollapsibleContent>
+                              <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
+                                <div className="group-data-[collapsible=icon]:hidden">
+                                  <DistributionTree
+                                    mode="validation"
+                                    selectedFeederId={selectedFeederId}
+                                    onFeederSelect={handleFeederSelectValidation}
+                                  />
+                                </div>
+                              </div>
+                            </CollapsibleContent>
+                          </div>
+                        </Collapsible>
+                      </SidebarMenuSubItem>
+
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
+
+              {/* ── Commercial ────────────────────────────────────────── */}
+              <Collapsible asChild className="group/commercial">
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      tooltip="Commercial"
+                      className="bg-emerald-500/10 hover:bg-emerald-500/15"
+                    >
+                      <DollarSign className="w-4 h-4 text-emerald-500" />
+                      <span>Commercial</span>
+                      <ChevronRight className="ml-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/commercial:rotate-90" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem>
+                        <Collapsible asChild className="group/comm-proc">
+                          <SidebarMenuSubItem>
+                            <CollapsibleTrigger asChild>
+                              <SidebarMenuSubButton className="w-full justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Wrench className="w-4 h-4 shrink-0" />
+                                  <span>Traitement</span>
+                                </div>
+                                <ChevronRight className="h-3 w-3 shrink-0 transition-transform duration-200 group-data-[state=open]/comm-proc:rotate-90" />
+                              </SidebarMenuSubButton>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <SidebarMenuSub className="ml-4 space-y-1">
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton asChild isActive={pathname === "/commercial/processing/verifications"}>
+                                    <Link href="/commercial/processing/verifications">
+                                      <Eye className="w-4 h-4" />
+                                      <span>Vérifications</span>
                                     </Link>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
-                              );
-                            })}
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
-                  );
-                }
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton asChild isActive={pathname === "/commercial/processing/complex"}>
+                                    <Link href="/commercial/processing/complex">
+                                      <AlertCircle className="w-4 h-4" />
+                                      <span>Cas complexes</span>
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton asChild isActive={pathname === "/commercial/processing/rejets"}>
+                                    <Link href="/commercial/processing/rejets">
+                                      <XCircle className="w-4 h-4" />
+                                      <span>Rejets</span>
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              </SidebarMenuSub>
+                            </CollapsibleContent>
+                          </SidebarMenuSubItem>
+                        </Collapsible>
+                      </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton asChild isActive={pathname === "/commercial/validation"}>
+                          <Link href="/commercial/validation">
+                            <CheckSquare className="w-4 h-4" />
+                            <span>{t("nav.validation")}</span>
+                          </Link>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
 
-                const isNotifications = item.title === t("nav.notifications");
-                
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
-                      <Link href={item.url!} className="relative">
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                        {isNotifications && unreadNotificationsCount > 0 && (
-                          <Badge 
-                            variant="destructive" 
-                            className="absolute top-4 right-6 translate-x-1/2 -translate-y-1/2 h-5 min-w-5 px-1 flex items-center justify-center rounded-full text-[10px] font-bold"
-                          >
-                            {unreadNotificationsCount > 99 ? "99+" : unreadNotificationsCount}
-                          </Badge>
-                        )}
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {/* Users */}
+              {hasPermission("view:users") && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/users"} tooltip={t("nav.users")}>
+                    <Link href="/users">
+                      <Users className="w-4 h-4" />
+                      <span>{t("nav.users")}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+
+              {/* Notifications */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/notifications"} tooltip={t("nav.notifications")}>
+                  <Link href="/notifications" className="relative">
+                    <Bell className="w-4 h-4" />
+                    <span>{t("nav.notifications")}</span>
+                    {unreadCount > 0 && (
+                      <Badge
+                        variant="destructive"
+                        className="absolute top-2 right-2 h-4 min-w-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold"
+                      >
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </Badge>
+                    )}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Map */}
+              {hasPermission("view:map") && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/map"} tooltip={t("nav.map")}>
+                    <Link href="/map">
+                      <Map className="w-4 h-4" />
+                      <span>{t("nav.map")}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -335,7 +397,10 @@ export function AppSidebar() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                <DropdownMenuItem
+                  onClick={logout}
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                >
                   <LogOut className="mr-2 h-4 w-4" />
                   {t("auth.logout")}
                 </DropdownMenuItem>
