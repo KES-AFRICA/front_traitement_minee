@@ -14,20 +14,17 @@ import {
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { LanguageSwitch } from "@/components/shared/language-switch";
 import { NotificationDropdown } from "@/components/shared/notification-dropdown";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import React from "react";
 
-// Structure hiérarchique des pages
+// Structure hiérarchique des pages statiques
 const routeConfig: Record<string, { label: string; href: string; parent?: string }> = {
   // Distribution
   "distribution": { label: "Distribution", href: "/distribution" },
-  "distribution-processing": { label: "Traitement", href: "/distribution/processing", parent: "distribution" },
-  "/distribution/processing/duplicates": { label: "Doublons", href: "/distribution/processing/duplicates", parent: "distribution-processing" },
-  "/distribution/processing/differences": { label: "Divergences", href: "/distribution/processing/differences", parent: "distribution-processing" },
-  "/distribution/processing/new-kobo": { label: "Nouvelles données", href: "/distribution/processing/new-kobo", parent: "distribution-processing" },
-  "/distribution/processing/missing-eneo": { label: "Manquants", href: "/distribution/processing/missing-eneo", parent: "distribution-processing" },
-  "/distribution/processing/complex": { label: "Cas complexes", href: "/distribution/processing/complex", parent: "distribution-processing" },
-  "/distribution/validation": { label: "Validation", href: "/distribution/validation", parent: "distribution" },
+  "distribution-processing": { label: "Traitements", href: "/distribution/processing", parent: "distribution" },
+  "distribution-processing-departs": { label: "Départs", href: "/distribution/processing/departs", parent: "distribution-processing" },
+  "distribution-validation": { label: "Validation", href: "/distribution/validation", parent: "distribution" },
+  "distribution-validation-departs": { label: "Départs", href: "/distribution/validation/departs", parent: "distribution-validation" },
   
   // Commercial
   "commercial": { label: "Commercial", href: "/commercial" },
@@ -46,7 +43,74 @@ const routeConfig: Record<string, { label: string; href: string; parent?: string
   "/profile": { label: "Profil", href: "/profile" },
 };
 
-function getBreadcrumbPath(pathname: string): { label: string; href: string }[] {
+function getBreadcrumbPath(pathname: string, searchParams: URLSearchParams): { label: string; href: string }[] {
+  // Gestion des routes dynamiques pour /distribution/processing/feeder/[id]
+  const processingFeederPattern = /^\/distribution\/processing\/feeder\/([^/]+)$/;
+  const processingMatch = pathname.match(processingFeederPattern);
+  
+  if (processingMatch) {
+    const feederId = processingMatch[1];
+    const feederName = searchParams.get('name') || feederId;
+    
+    return [
+      { label: "Distribution", href: "/distribution" },
+      { label: "Traitements", href: "/distribution/processing" },
+      { label: "Départs", href: "/distribution/processing/departs" },
+      { label: decodeURIComponent(feederName), href: pathname }
+    ];
+  }
+  
+  // Gestion des routes dynamiques pour /distribution/validation/feeder/[id]
+  const validationFeederPattern = /^\/distribution\/validation\/feeder\/([^/]+)$/;
+  const validationMatch = pathname.match(validationFeederPattern);
+  
+  if (validationMatch) {
+    const feederId = validationMatch[1];
+    const feederName = searchParams.get('name') || feederId;
+    
+    return [
+      { label: "Distribution", href: "/distribution" },
+      { label: "Validation", href: "/distribution/validation" },
+      { label: "Départs", href: "/distribution/validation/departs" },
+      { label: decodeURIComponent(feederName), href: pathname }
+    ];
+  }
+  
+  // Gestion de la liste des départs en traitement
+  if (pathname === "/distribution/processing/departs") {
+    return [
+      { label: "Distribution", href: "/distribution" },
+      { label: "Traitements", href: "/distribution/processing" },
+      { label: "Départs", href: "/distribution/processing/departs" }
+    ];
+  }
+  
+  // Gestion de la liste des départs en validation
+  if (pathname === "/distribution/validation/departs") {
+    return [
+      { label: "Distribution", href: "/distribution" },
+      { label: "Validation", href: "/distribution/validation" },
+      { label: "Départs", href: "/distribution/validation/departs" }
+    ];
+  }
+  
+  // Gestion de la page de traitement
+  if (pathname === "/distribution/processing") {
+    return [
+      { label: "Distribution", href: "/distribution" },
+      { label: "Traitements", href: "/distribution/processing" }
+    ];
+  }
+  
+  // Gestion de la page de validation
+  if (pathname === "/distribution/validation") {
+    return [
+      { label: "Distribution", href: "/distribution" },
+      { label: "Validation", href: "/distribution/validation" }
+    ];
+  }
+  
+  // Routes statiques
   const current = routeConfig[pathname];
   if (!current) return [];
   
@@ -67,8 +131,13 @@ function getBreadcrumbPath(pathname: string): { label: string; href: string }[] 
 
 export function AppHeader() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
-  const breadcrumbItems = getBreadcrumbPath(pathname);
+  
+  // Utiliser useMemo pour recalculer le breadcrumb quand pathname ou searchParams change
+  const breadcrumbItems = React.useMemo(() => {
+    return getBreadcrumbPath(pathname, searchParams);
+  }, [pathname, searchParams]);
 
   return (
     <header className="flex h-14 items-center justify-between gap-4 border-b border-border bg-background px-4 lg:px-6">
