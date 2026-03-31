@@ -11,7 +11,7 @@ import {
   CheckCircle2, ChevronRight, ChevronDown, Pencil,
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
   Layers, Info, MapPin, Save, UserCheck, Users, Filter,
-  Play, Clock, Timer, User
+  Play, Clock, Timer, User, RefreshCw
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -161,6 +161,7 @@ function AssignDialog({
   processingAgents,
   isAssigning,
   currentUser,
+  isReassign = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -169,6 +170,7 @@ function AssignDialog({
   processingAgents: UserType[];
   isAssigning: boolean;
   currentUser: UserType | null;
+  isReassign?: boolean;
 }) {
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
 
@@ -193,10 +195,12 @@ function AssignDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserCheck className="h-5 w-5 text-primary" />
-            Assigner un agent
+            {isReassign ? "Assigner un autre agent" : "Assigner un agent"}
           </DialogTitle>
           <DialogDescription>
-            Assignez ce départ à un agent de traitement pour analyse des anomalies.
+            {isReassign 
+              ? "Changez l'agent responsable de ce départ pour le traitement des anomalies."
+              : "Assignez ce départ à un agent de traitement pour analyse des anomalies."}
           </DialogDescription>
         </DialogHeader>
         
@@ -260,7 +264,7 @@ function AssignDialog({
             ) : (
               <>
                 <UserCheck className="h-4 w-4 mr-2" />
-                Assigner
+                {isReassign ? "Réassigner" : "Assigner"}
               </>
             )}
           </Button>
@@ -794,6 +798,22 @@ function TimerDisplay({ startTime }: { startTime: number | null }) {
   );
 }
 
+// ─── Fonction pour supprimer tous les localStorage d'un feeder ─────────────────
+const clearFeederLocalStorage = (feederId: string) => {
+  // Supprimer l'état principal du feeder
+  localStorage.removeItem(`feeder_${feederId}`);
+  
+  // Supprimer tous les items liés à ce feeder
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.includes(`feeder_${feederId}`) || key.includes(`treatment_${feederId}`))) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
+};
+
 // ─── Page principale ─────────────────────────────────────────────────────────
 export default function FeederProcessingPage() {
   const params = useParams();
@@ -806,6 +826,7 @@ export default function FeederProcessingPage() {
   const [selectedEquipment, setSelectedEquipment] = useState<EquipmentDetail | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
   const [processingAgents, setProcessingAgents] = useState<UserType[]>([]);
   const [isAssigning, setIsAssigning] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
@@ -818,26 +839,16 @@ export default function FeederProcessingPage() {
   // État pour savoir si le traitement est actif (pour la modification des champs)
   const isTreatmentActive = feederStatus === "processing";
 
-  // Charger l'état du feeder depuis localStorage
+  // Nettoyer le localStorage au chargement de la page
   useEffect(() => {
-    const loadFeederState = () => {
-      const stored = localStorage.getItem(`feeder_${feederId}`);
-      if (stored) {
-        const data: FeederAssignment = JSON.parse(stored);
-        setFeederStatus(data.status);
-        if (data.assignedAgentId && data.assignedAgentName) {
-          setAssignedAgent({ id: data.assignedAgentId, name: data.assignedAgentName });
-        }
-        if (data.treatmentStartTime) {
-          setTreatmentStartTime(data.treatmentStartTime);
-        }
-      } else {
-        // Statut par défaut: en cours de collecte
-        setFeederStatus("collecting");
-      }
-    };
+    // Supprimer tous les localStorage liés à ce feeder au chargement
+    clearFeederLocalStorage(feederId);
     
-    loadFeederState();
+    // Réinitialiser tous les états
+    setFeederStatus("collecting");
+    setAssignedAgent(null);
+    setTreatmentStartTime(null);
+    setTreatment({});
     
     // Simuler un utilisateur connecté (à remplacer par votre logique d'authentification)
     const fetchCurrentUser = async () => {
@@ -883,11 +894,17 @@ export default function FeederProcessingPage() {
       saveFeederState("pending", { id: agentId, name: agentName }, null);
       toast.success(`Départ ${feederName} assigné à ${agentName}`);
       setIsAssignDialogOpen(false);
+      setIsReassignDialogOpen(false);
     } catch (error) {
       toast.error("Erreur lors de l'assignation");
     } finally {
       setIsAssigning(false);
     }
+  };
+
+  // Gérer la réassignation d'un agent
+  const handleReassign = async (agentId: string, agentName: string) => {
+    await handleAssign(agentId, agentName);
   };
 
   // Gérer le début du traitement (uniquement si l'agent assigné est l'utilisateur connecté)
@@ -910,51 +927,36 @@ export default function FeederProcessingPage() {
   };
 
   // Gérer la fin du traitement - Version avec suppression complète
-const handleStopTreatment = () => {
-  
-  try {
-    // 1. Supprimer l'état du feeder
-    localStorage.removeItem(`feeder_${feederId}`);
-    
-    // 2. Supprimer aussi les données de traitement si vous en avez d'autres
-    // (optionnel) Supprimer tous les items liés à ce feeder
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.includes(`treatment_${feederId}`)) {
-        keysToRemove.push(key);
-      }
+  const handleStopTreatment = () => {
+    try {
+      // Supprimer tous les localStorage liés à ce feeder
+      clearFeederLocalStorage(feederId);
+      
+      // Réinitialiser tous les états
+      setFeederStatus("collecting");
+      setAssignedAgent(null);
+      setTreatmentStartTime(null);
+      setTreatment({});
+      
+      // Réinitialiser le filtre actif (optionnel)
+      setActiveFilter("all");
+      
+      // Fermer les modals ouverts (optionnel)
+      setIsSheetOpen(false);
+      setIsAssignDialogOpen(false);
+      setSelectedEquipment(null);
+      
+      // Afficher le message de succès
+      toast.success(
+        "Traitement terminé ! Toutes les données ont été réinitialisées.",
+        { duration: 4000 }
+      );
+      
+    } catch (error) {
+      console.error("Erreur lors de la réinitialisation:", error);
+      toast.error("Une erreur est survenue lors de la réinitialisation");
     }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-    
-    // 3. Réinitialiser tous les états
-    setFeederStatus("collecting");
-    setAssignedAgent(null);
-    setTreatmentStartTime(null);
-    setTreatment({});
-    
-    // 4. Réinitialiser le filtre actif (optionnel)
-    setActiveFilter("all");
-    
-    // 5. Fermer les modals ouverts (optionnel)
-    setIsSheetOpen(false);
-    setIsAssignDialogOpen(false);
-    setSelectedEquipment(null);
-    
-    // 6. Afficher le message de succès
-    toast.success(
-      "Traitement terminé !.",
-      { duration: 4000 }
-    );
-    
-    // 7. Optionnel: recharger la page pour un état complètement frais
-    // setTimeout(() => window.location.reload(), 2000);
-    
-  } catch (error) {
-    console.error("Erreur lors de la réinitialisation:", error);
-    toast.error("Une erreur est survenue lors de la réinitialisation");
-  }
-};
+  };
 
   // Déterminer quel badge afficher
   const getStatusBadge = () => {
@@ -976,7 +978,7 @@ const handleStopTreatment = () => {
       return (
         <Button onClick={handleCompleteCollection} className="gap-2 bg-blue-600 hover:bg-blue-700">
           <Check className="h-4 w-4" />
-          Collecte terminée
+          Terminer la collecte 
         </Button>
       );
     }
@@ -991,17 +993,26 @@ const handleStopTreatment = () => {
           </Button>
         );
       }
-      // Si l'agent assigné est l'utilisateur connecté, afficher le bouton "Débuter le traitement"
-      if (currentUser && assignedAgent.id === currentUser.id) {
-        return (
-          <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-            <Play className="h-4 w-4" />
-            Débuter le traitement
+      
+      // Afficher les deux boutons: réassigner et débuter le traitement
+      return (
+        <div className="flex gap-2">
+          <Button 
+            onClick={handleOpenReassignDialog} 
+            variant="outline" 
+            className="gap-2 border-purple-300 text-white bg-purple-800 hover:bg-purple-800 cursor-pointer"   
+          >
+            <RefreshCw className="h-4 w-4" />
+            Assigner un autre agent
           </Button>
-        );
-      }
-      // Sinon, ne rien afficher (ou afficher un message que l'agent est déjà assigné)
-      return null;
+          {currentUser && assignedAgent.id === currentUser.id && (
+            <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+              <Play className="h-4 w-4" />
+              Débuter le traitement
+            </Button>
+          )}
+        </div>
+      );
     }
     
     if (feederStatus === "processing") {
@@ -1217,6 +1228,11 @@ const handleStopTreatment = () => {
     setIsAssignDialogOpen(true);
   };
 
+  const handleOpenReassignDialog = async () => {
+    await fetchProcessingAgents();
+    setIsReassignDialogOpen(true);
+  };
+
   const allTreated = useMemo(
     () => allAnomalies.length > 0 && allAnomalies.every((a) => treatment[a.id]?.treated),
     [allAnomalies, treatment]
@@ -1385,6 +1401,19 @@ const handleStopTreatment = () => {
         processingAgents={processingAgents}
         isAssigning={isAssigning}
         currentUser={currentUser}
+        isReassign={false}
+      />
+
+      {/* Dialog de réassignation */}
+      <AssignDialog
+        isOpen={isReassignDialogOpen}
+        onClose={() => setIsReassignDialogOpen(false)}
+        onAssign={handleReassign}
+        feederName={feederName}
+        processingAgents={processingAgents}
+        isAssigning={isAssigning}
+        currentUser={currentUser}
+        isReassign={true}
       />
     </div>
   );

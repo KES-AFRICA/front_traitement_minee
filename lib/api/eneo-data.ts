@@ -396,7 +396,7 @@ export const eneoRegions: EneoRegion[] = [
       {
         id: "DRD-O",
         code: "DRD-O",
-        name: "BONABERIE",
+        name: "BONABERI",
         departures: (() => {
           // Récupérer UNIQUEMENT les feeders présents dans layer2DB
           const availableFeeders = getAvailableFeedersFromLayer2();
