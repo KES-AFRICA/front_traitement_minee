@@ -1,23 +1,12 @@
 // hooks/useComparison.ts
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { 
-  fetchComparison, 
-  fetchFeedersComparison,
-  fetchComparisonHealth,
-  getCollectionRate
+import { useState, useEffect, useCallback } from "react";
+import {
+  fetchFeedersSource,
+  fetchFeederComparison
 } from "@/lib/api/services/comparisonService";
-import { 
-  ComparisonResult, 
-  FeedersResponse,
-  HealthResponse,
-  AnomalyCase,
-  AnomalyType,
-  TableName,
-  FeederComparison
-} from "@/lib/types/comparison";
+import { FeederComparisonResult, FeedersSourceResponse } from "@/lib/types/comparison";
 
-// ── État générique asynchrone ─────────────────────────────────────────────────
 
 interface AsyncState<T> {
   data: T | null;
@@ -26,12 +15,12 @@ interface AsyncState<T> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hook 1 : useComparison
-// Charge les résultats de comparaison
+// Hook : useFeedersSource
+// Charge tous les feeders avec leur poste source
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useComparison() {
-  const [state, setState] = useState<AsyncState<ComparisonResult>>({
+export function useFeedersSource() {
+  const [state, setState] = useState<AsyncState<FeedersSourceResponse>>({
     data: null,
     loading: true,
     error: null,
@@ -40,7 +29,7 @@ export function useComparison() {
   const load = useCallback(async () => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const data = await fetchComparison();
+      const data = await fetchFeedersSource();
       setState({ data, loading: false, error: null });
     } catch (err) {
       setState({
@@ -54,76 +43,6 @@ export function useComparison() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // Filtres
-  const getByType = useCallback((type: AnomalyType): AnomalyCase[] => {
-    if (!state.data) return [];
-    return state.data.cases.filter(c => c.type === type);
-  }, [state.data]);
-
-  const getByTable = useCallback((table: TableName): AnomalyCase[] => {
-    if (!state.data) return [];
-    return state.data.cases.filter(c => c.table === table);
-  }, [state.data]);
-
-  return {
-    result: state.data,
-    summary: state.data?.summary,
-    cases: state.data?.cases ?? [],
-    loading: state.loading,
-    error: state.error,
-    refresh: load,
-    getByType,
-    getByTable,
-    // Accès rapides
-    duplicates: state.data ? state.data.cases.filter(c => c.type === "duplicate") : [],
-    divergences: state.data ? state.data.cases.filter(c => c.type === "divergence") : [],
-    new: state.data ? state.data.cases.filter(c => c.type === "new") : [],
-    missing: state.data ? state.data.cases.filter(c => c.type === "missing") : [],
-    complex: state.data ? state.data.cases.filter(c => c.type === "complex") : [],
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hook 2 : useFeedersComparison
-// Charge les feeders avec leurs données référence et collectées
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function useFeedersComparison() {
-  const [state, setState] = useState<AsyncState<FeedersResponse>>({
-    data: null,
-    loading: true,
-    error: null,
-  });
-
-  const load = useCallback(async () => {
-    setState(prev => ({ ...prev, loading: true, error: null }));
-    try {
-      const data = await fetchFeedersComparison();
-      setState({ data, loading: false, error: null });
-    } catch (err) {
-      setState({
-        data: null,
-        loading: false,
-        error: err instanceof Error ? err.message : "Erreur inconnue",
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Helper: trouver un feeder par son ID
-  const getFeederById = useCallback((feederId: string): FeederComparison | null => {
-    if (!state.data) return null;
-    return state.data.feeders.find(f => f.feeder_id === feederId) || null;
-  }, [state.data]);
-
-  // Helper: calculer le taux de collecte
-  const getCollectionRateForFeeder = useCallback((feeder: FeederComparison): number => {
-    return getCollectionRate(feeder);
-  }, []);
 
   return {
     feeders: state.data?.feeders ?? [],
@@ -131,48 +50,49 @@ export function useFeedersComparison() {
     loading: state.loading,
     error: state.error,
     refresh: load,
-    getFeederById,
-    getCollectionRateForFeeder,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hook 3 : useComparisonHealth
-// Vérifie l'état du service
+// Hook : useFeederComparison
+// Charge la comparaison pour un feeder spécifique
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useComparisonHealth() {
-  const [state, setState] = useState<AsyncState<HealthResponse>>({
+export function useFeederComparison(feederId: string | null | undefined) {
+  const [state, setState] = useState<AsyncState<FeederComparisonResult>>({
     data: null,
-    loading: true,
+    loading: false,
     error: null,
   });
 
-  const check = useCallback(async () => {
+  const load = useCallback(async (id: string) => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const data = await fetchComparisonHealth();
+      const data = await fetchFeederComparison(id);
       setState({ data, loading: false, error: null });
-      return data;
     } catch (err) {
       setState({
         data: null,
         loading: false,
-        error: err instanceof Error ? err.message : "Service indisponible",
+        error: err instanceof Error ? err.message : "Erreur inconnue",
       });
-      return null;
     }
   }, []);
 
   useEffect(() => {
-    check();
-  }, [check]);
+    if (feederId) {
+      load(feederId);
+    } else {
+      setState({ data: null, loading: false, error: null });
+    }
+  }, [feederId, load]);
 
   return {
-    health: state.data,
-    isHealthy: state.data?.status === "ok",
+    result: state.data,
+    summary: state.data?.summary,
+    tables: state.data?.tables,
     loading: state.loading,
     error: state.error,
-    check,
+    refresh: () => feederId && load(feederId),
   };
 }

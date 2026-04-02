@@ -51,8 +51,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { EneoDeparture, EneoRegion, EneoZone } from "@/lib/api/eneo-data";
-import { DistributionTree } from "../distribution/distribution-tree";
+// import { DistributionTree } from "../distribution/distribution-tree";
 import { cn } from "@/lib/utils";
+import { FeedersTree } from "../distribution/feeders-tree";
 
 const roleLabels: Record<string, string> = {
   admin: "Administrateur",
@@ -197,17 +198,16 @@ export function AppSidebar() {
                                 </SidebarMenuSubButton>
                               </CollapsibleTrigger>
 
-                              <CollapsibleContent>
-                                <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
-                                  <div className="group-data-[collapsible=icon]:hidden">
-                                    <DistributionTree
-                                      mode="processing"
-                                      selectedFeederId={selectedFeederId}
-                                      onFeederSelect={handleFeederSelectProcessing}
-                                    />
+                                <CollapsibleContent>
+                                  <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
+                                    <div className="group-data-[collapsible=icon]:hidden">
+                                      <FeedersTree
+                                        mode="processing"
+                                        selectedFeederId={selectedFeederId}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              </CollapsibleContent>
+                                </CollapsibleContent>
                             </div>
                           </Collapsible>
                         </SidebarMenuSubItem>
@@ -230,17 +230,16 @@ export function AppSidebar() {
                                 </SidebarMenuSubButton>
                               </CollapsibleTrigger>
 
-                              <CollapsibleContent>
-                                <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
-                                  <div className="group-data-[collapsible=icon]:hidden">
-                                    <DistributionTree
-                                      mode="validation"
-                                      selectedFeederId={selectedFeederId}
-                                      onFeederSelect={handleFeederSelectValidation}
-                                    />
+                                <CollapsibleContent>
+                                  <div className="mt-0.5 ml-2 pl-2 border-l border-sidebar-border/50 py-1">
+                                    <div className="group-data-[collapsible=icon]:hidden">
+                                      <FeedersTree
+                                        mode="processing"
+                                        selectedFeederId={selectedFeederId}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              </CollapsibleContent>
+                                </CollapsibleContent>
                             </div>
                           </Collapsible>
                         </SidebarMenuSubItem>

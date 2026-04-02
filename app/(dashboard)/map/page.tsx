@@ -100,7 +100,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 //      style={{ zIndex: 10001, pointerEvents: "auto" }} et un
 //      e.stopPropagation() sur le groupe, garantissant qu'ils restent
 //      cliquables même si un élément parent absorbe les événements.
-function PhotoModal({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+export function PhotoModal({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   const [mounted, setMounted] = useState(false);
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -277,7 +277,7 @@ function PhotoModal({ src, alt, onClose }: { src: string; alt: string; onClose: 
 }
 
 // ── Composant PhotoThumb ──────────────────────────────────────────────────────
-function PhotoThumb({ src, alt }: { src: string | null | undefined; alt: string }) {
+export function PhotoThumb({ src, alt }: { src: string | null | undefined; alt: string }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const url = buildPhotoUrl(src);
@@ -294,7 +294,7 @@ function PhotoThumb({ src, alt }: { src: string | null | undefined; alt: string 
   return (
     <>
       <div
-        className="relative w-full h-48 rounded-lg overflow-hidden border bg-gray-500/20 cursor-pointer hover:opacity-90 transition-opacity"
+        className="relative w-full h-64 rounded-lg overflow-hidden border bg-gray-500/20 cursor-pointer hover:opacity-90 transition-opacity"
         onClick={handleClick}
       >
         {/* Skeleton */}
