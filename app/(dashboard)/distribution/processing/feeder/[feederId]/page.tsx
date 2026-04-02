@@ -50,15 +50,15 @@ import { FeederComparisonResult, TableName, Divergence, Duplicate, AnomalyItem, 
 import { buildPhotoUrl } from "@/lib/api/services/koboService";
 import { PhotoThumb } from "@/app/(dashboard)/map/page";
 
-// ─── Leaflet client-only ──────────────────────────────────────────────────────
-const FeederMap = dynamic(
+// ─── Leaflet client-only - Utilisation du nouveau FullscreenMap ──────────────
+const FullscreenMap = dynamic(
   () => import("@/components/distribution/feeder-map"),
   {
     ssr: false,
     loading: () => (
       <div
         className="w-full bg-muted/30 rounded-lg flex items-center justify-center animate-pulse"
-        style={{ height: "20vh", minHeight: 160 }}
+        style={{ height: "30vh", minHeight: 200 }}
       >
         <span className="text-sm text-muted-foreground">Chargement de la carte…</span>
       </div>
@@ -77,8 +77,6 @@ interface TreatmentState {
     editedFields: Record<string, string>;
   };
 }
-
-
 
 interface FeederAssignment {
   feederId: string;
@@ -124,7 +122,7 @@ const FL: Record<string, string> = {
   normal_open: "NO", bay_mrid: "Travée", nature: "Nature", t1: "T1", t2: "T2",
   busbar_id1: "Bus bar 1", busbar_id2: "Bus bar 2", is_injection: "Injection",
   is_feederhead: "Tête départ", local_name: "Nom local", m_rid: "M-RID",
-   w1_voltage: "Tension primaire", w2_voltage: "Tension secondaire",
+  w1_voltage: "Tension primaire", w2_voltage: "Tension secondaire",
   substations_m_rid: "Poste source",
 };
 const fl = (k: string) => FL[k] || k;
@@ -270,7 +268,6 @@ function AssignDialog({
 }
 
 // ─── Sheet pour les détails d'équipement ──────────────────────────────────────
-// ─── Sheet pour les détails d'équipement ──────────────────────────────────────
 function EquipmentDetailSheet({
   equipment,
   isOpen,
@@ -386,19 +383,13 @@ function EquipmentDetailSheet({
           <div className="flex-1 overflow-y-auto px-2 py-2 space-y-5">
             {/* Section photo */}
             <div className="w-full flex flex-col items-center justify-center py-2 border-b border-dashed border-border">
-              
               {displayPhotoUrl ? (
-             <PhotoThumb src={displayPhotoUrl} alt={equipment.name}  />
+                <PhotoThumb src={displayPhotoUrl} alt={equipment.name} />
               ) : (
                 <div className="w-32 h-32 rounded-full bg-muted/50 flex items-center justify-center">
                   <Icon className="h-12 w-12 text-muted-foreground/50" />
                 </div>
               )}
-             
-              {/* <p className="text-xs text-muted-foreground text-center mt-3">
-                {equipment.name}<br />
-                <span className="text-[10px]">ID: {equipment.mrid}</span>
-              </p> */}
             </div>
 
             {/* Section anomalies */}
@@ -679,6 +670,7 @@ function EquipmentCard({ equipment, onEquipmentClick, isClickable }: {
     </div>
   );
 }
+
 // ─── Carte d'anomalie ─────────────────────────────────────────────────────────
 function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable }: {
   anomaly: AnomalyItem; 
@@ -694,58 +686,43 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
 
-const equipmentDetail: EquipmentDetail | null = useMemo(() => {
-  // La photo vient toujours du terrain (collected_data)
-  // Les données affichées : collected > reference > data direct
-  const collectedData = anomaly.collected_data || {};
-  const referenceData = anomaly.reference_data || {};
-  const directData = anomaly.data || {};
+  const equipmentDetail: EquipmentDetail | null = useMemo(() => {
+    const collectedData = anomaly.collected_data || {};
+    const referenceData = anomaly.reference_data || {};
+    const directData = anomaly.data || {};
 
-  // Priorité pour les données : collected_data d'abord (terrain), sinon reference, sinon data direct
-  let recordData: Record<string, any> = {};
+    let recordData: Record<string, any> = {};
 
-  if (anomaly.type === "missing") {
-    // missing = présent en référence seulement, pas de collected_data
-    recordData = { ...directData, ...referenceData };
-  } else if (anomaly.type === "new") {
-    // new = présent terrain seulement
-    recordData = { ...directData, ...collectedData };
-  } else if (anomaly.type === "divergence") {
-    // divergence = les deux existent, on prend collected pour affichage
-    recordData = { ...referenceData, ...collectedData };
-  } else if (anomaly.type === "duplicate") {
-    recordData = { ...collectedData };
-  } else {
-    recordData = { ...directData, ...collectedData };
-  }
+    if (anomaly.type === "missing") {
+      recordData = { ...directData, ...referenceData };
+    } else if (anomaly.type === "new") {
+      recordData = { ...directData, ...collectedData };
+    } else if (anomaly.type === "divergence") {
+      recordData = { ...referenceData, ...collectedData };
+    } else if (anomaly.type === "duplicate") {
+      recordData = { ...collectedData };
+    } else {
+      recordData = { ...directData, ...collectedData };
+    }
 
-  // ✅ La photo vient TOUJOURS du collected_data ou du data direct
-  const photoUrl =
-    collectedData.photo ||
-    directData.photo ||
-    null;
+    const photoUrl = collectedData.photo || directData.photo || null;
 
-  return {
-    id: anomaly.mrid,
-    mrid: anomaly.mrid,
-    table: anomaly.table,
-    name: anomaly.name || recordData.name || String(anomaly.mrid),
-    data: recordData,
-    anomalies: [anomaly],
-    photo: photoUrl,  
-    location:
-      recordData.latitude && recordData.longitude
+    return {
+      id: anomaly.mrid,
+      mrid: anomaly.mrid,
+      table: anomaly.table,
+      name: anomaly.name || recordData.name || String(anomaly.mrid),
+      data: { ...recordData, _anomalyType: anomaly.type }, // Ajout du type d'anomalie pour la couleur
+      anomalies: [anomaly],
+      photo: photoUrl,  
+      location: recordData.latitude && recordData.longitude
         ? {
-            lat: typeof recordData.latitude === "string"
-              ? parseFloat(recordData.latitude)
-              : recordData.latitude,
-            lng: typeof recordData.longitude === "string"
-              ? parseFloat(recordData.longitude)
-              : recordData.longitude,
+            lat: typeof recordData.latitude === "string" ? parseFloat(recordData.latitude) : recordData.latitude,
+            lng: typeof recordData.longitude === "string" ? parseFloat(recordData.longitude) : recordData.longitude,
           }
         : undefined,
-  };
-}, [anomaly]);
+    };
+  }, [anomaly]);
 
   const handleCardClick = () => {
     if (isClickable && equipmentDetail) {
@@ -813,9 +790,8 @@ const equipmentDetail: EquipmentDetail | null = useMemo(() => {
         </div>
         
         <div className="p-3 grid grid-cols-1 md:grid-cols-5 gap-2">
-          {/* Afficher la photo en grand si disponible */}
           {displayPhotoUrl && (
-            <div className=" md:col-span-1 rounded-lg overflow-hidden bg-muted/20 border border-border relative group">
+            <div className="md:col-span-1 rounded-lg overflow-hidden bg-muted/20 border border-border relative group">
               <img 
                 src={displayPhotoUrl} 
                 alt={equipmentDetail?.name || "Photo"} 
@@ -836,85 +812,78 @@ const equipmentDetail: EquipmentDetail | null = useMemo(() => {
             </div>
           )}
           
-        <div className="p-3 w-full md:col-span-4">
-            {/* Afficher la localisation si disponible */}
-          {equipmentDetail?.location && (
-            <div className="mb-3 text-xs text-muted-foreground flex items-center gap-1">
-              <MapPin className="h-3 w-3" />
-              <span className="font-mono">
-                {equipmentDetail.location.lat.toFixed(6)}, {equipmentDetail.location.lng.toFixed(6)}
-              </span>
-            </div>
-          )}
-          
-          {/* Afficher les champs en divergence */}
-          {anomaly.type === "divergence" && anomaly.divergent_fields && anomaly.divergent_fields.slice(0, 3).map((df, idx) => (
-            <div key={idx} className="grid grid-cols-2 gap-2 text-xs mb-2">
-              <div className="p-1.5 rounded bg-red-50 dark:bg-red-950/20">
-                <span className="text-red-600 dark:text-red-400 text-[10px] font-medium">RÉFÉRENCE</span>
-                <p className="font-mono text-xs wrap-break-word">{fv(df.reference_value)}</p>
+          <div className="p-3 w-full md:col-span-4">
+            {equipmentDetail?.location && (
+              <div className="mb-3 text-xs text-muted-foreground flex items-center gap-1">
+                <MapPin className="h-3 w-3" />
+                <span className="font-mono">
+                  {equipmentDetail.location.lat.toFixed(6)}, {equipmentDetail.location.lng.toFixed(6)}
+                </span>
               </div>
-              <div className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/20">
-                <span className="text-amber-600 dark:text-amber-400 text-[10px] font-medium">COLLECTÉ</span>
-                <p className="font-mono text-xs wrap-break-word">{fv(df.collected_value)}</p>
+            )}
+          
+            {anomaly.type === "divergence" && anomaly.divergent_fields && anomaly.divergent_fields.slice(0, 3).map((df, idx) => (
+              <div key={idx} className="grid grid-cols-2 gap-2 text-xs mb-2">
+                <div className="p-1.5 rounded bg-red-50 dark:bg-red-950/20">
+                  <span className="text-red-600 dark:text-red-400 text-[10px] font-medium">RÉFÉRENCE</span>
+                  <p className="font-mono text-xs wrap-break-word">{fv(df.reference_value)}</p>
+                </div>
+                <div className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/20">
+                  <span className="text-amber-600 dark:text-amber-400 text-[10px] font-medium">COLLECTÉ</span>
+                  <p className="font-mono text-xs wrap-break-word">{fv(df.collected_value)}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
           
-          {/* Afficher les doublons */}
-          {anomaly.type === "duplicate" && anomaly.duplicate_occurrences && (
-            <div className="text-xs text-muted-foreground">
-              ⚠️ {anomaly.duplicate_occurrences.length} occurrences trouvées
-            </div>
-          )}
+            {anomaly.type === "duplicate" && anomaly.duplicate_occurrences && (
+              <div className="text-xs text-muted-foreground">
+                ⚠️ {anomaly.duplicate_occurrences.length} occurrences trouvées
+              </div>
+            )}
           
-          {/* Afficher les infos supplémentaires pour missing/new */}
-          {(anomaly.type === "missing" || anomaly.type === "new") && equipmentDetail?.data && (
-            <div className="grid grid-cols-2 gap-1 text-[11px]">
-              {equipmentDetail.data.type && (
-                <div>
-                  <span className="text-muted-foreground">Type</span>
-                  <p className="font-mono truncate">{equipmentDetail.data.type}</p>
-                </div>
-              )}
-              {equipmentDetail.data.voltage && (
-                <div>
-                  <span className="text-muted-foreground">Tension</span>
-                  <p className="font-mono truncate">{equipmentDetail.data.voltage} kV</p>
-                </div>
-              )}
-              {equipmentDetail.data.regime && (
-                <div>
-                  <span className="text-muted-foreground">Régime</span>
-                  <p className="font-mono truncate">{equipmentDetail.data.regime}</p>
-                </div>
-              )}
-              {equipmentDetail.data.exploitation && (
-                <div>
-                  <span className="text-muted-foreground">Exploitation</span>
-                  <p className="font-mono truncate">{equipmentDetail.data.exploitation}</p>
-                </div>
-              )}
-            </div>
-          )}
-          
+            {(anomaly.type === "missing" || anomaly.type === "new") && equipmentDetail?.data && (
+              <div className="grid grid-cols-2 gap-1 text-[11px]">
+                {equipmentDetail.data.type && (
+                  <div>
+                    <span className="text-muted-foreground">Type</span>
+                    <p className="font-mono truncate">{equipmentDetail.data.type}</p>
+                  </div>
+                )}
+                {equipmentDetail.data.voltage && (
+                  <div>
+                    <span className="text-muted-foreground">Tension</span>
+                    <p className="font-mono truncate">{equipmentDetail.data.voltage} kV</p>
+                  </div>
+                )}
+                {equipmentDetail.data.regime && (
+                  <div>
+                    <span className="text-muted-foreground">Régime</span>
+                    <p className="font-mono truncate">{equipmentDetail.data.regime}</p>
+                  </div>
+                )}
+                {equipmentDetail.data.exploitation && (
+                  <div>
+                    <span className="text-muted-foreground">Exploitation</span>
+                    <p className="font-mono truncate">{equipmentDetail.data.exploitation}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        </div>
-                  {/* Bouton marquer traité */}
-          {!isTreated && isClickable && (
-            <div className="flex justify-end pt-2 mt-2 border-t border-border/40">
-              <button 
-                onClick={(e) => { e.stopPropagation(); onMarkTreated(anomaly.id); }}
-                className="flex mb-4 mr-4 items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-              >
-                <Check className="h-3.5 w-3.5" />Marquer traité
-              </button>
-            </div>
-          )}
+        {!isTreated && isClickable && (
+          <div className="flex justify-end pt-2 mt-2 border-t border-border/40">
+            <button 
+              onClick={(e) => { e.stopPropagation(); onMarkTreated(anomaly.id); }}
+              className="flex mb-4 mr-4 items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <Check className="h-3.5 w-3.5" />Marquer traité
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Modal plein écran pour la photo */}
       {isFullscreen && fullscreenPhoto && (
         <Dialog open={isFullscreen} onOpenChange={() => setIsFullscreen(false)}>
           <DialogContent className="max-w-[95vw] max-h-[95vh] w-[95vw] h-[95vh] p-0 bg-black/95 border-none">
@@ -935,6 +904,7 @@ const equipmentDetail: EquipmentDetail | null = useMemo(() => {
     </>
   );
 }
+
 // ─── Groupe par table ────────────────────────────────────────────────────────
 function TableGroup({ table, anomalies, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, defaultOpen, isClickable }: {
   table: string; 
@@ -1035,6 +1005,72 @@ const clearFeederLocalStorage = (feederId: string) => {
   keysToRemove.forEach(key => localStorage.removeItem(key));
 };
 
+// ─── Conversion des équipements pour la carte ─────────────────────────────────
+const convertToMapEquipments = (comparisonResult: FeederComparisonResult | null): Record<string, unknown>[] => {
+  if (!comparisonResult) return [];
+  
+  const mapEquipments: Record<string, unknown>[] = [];
+  const tables: TableName[] = ["feeder", "substation", "bus_bar", "bay", "switch", "powertransformer", "wire"];
+  
+  for (const table of tables) {
+    const tableResult = comparisonResult.tables[table];
+    if (!tableResult) continue;
+    
+    // Équipements conformes (référence)
+    for (const ref of tableResult.reference) {
+      mapEquipments.push({
+        ...ref,
+        table: table,
+        _anomalyType: undefined, // Pas d'anomalie
+      });
+    }
+    
+    // Équipements manquants (missing)
+    for (const missing of tableResult.missing) {
+      mapEquipments.push({
+        ...missing,
+        table: table,
+        _anomalyType: "missing",
+      });
+    }
+    
+    // Équipements nouveaux (new)
+    for (const newItem of tableResult.new) {
+      mapEquipments.push({
+        ...newItem,
+        table: table,
+        _anomalyType: "new",
+      });
+    }
+    
+    // Équipements en divergence
+    for (const div of tableResult.divergences) {
+      if (div.collected_data) {
+        mapEquipments.push({
+          ...div.collected_data,
+          table: table,
+          _anomalyType: "divergence",
+          _referenceData: div.reference_data,
+        });
+      }
+    }
+    
+    // Équipements en doublon
+    for (const dup of tableResult.duplicates) {
+      for (const occ of dup.occurrences) {
+        mapEquipments.push({
+          ...occ,
+          table: table,
+          _anomalyType: "duplicate",
+          _duplicateOccurrences: dup.occurrences,
+        });
+      }
+    }
+  }
+  
+  return mapEquipments;
+};
+
 // ─── Page principale ─────────────────────────────────────────────────────────
 export default function FeederProcessingPage() {
   const params = useParams();
@@ -1062,6 +1098,9 @@ export default function FeederProcessingPage() {
   
   const isTreatmentActive = feederStatus === "processing";
   const feederName = comparisonResult?.feeder_name || feederNameFromUrl;
+  
+  // Conversion des équipements pour la carte
+  const mapEquipments = useMemo(() => convertToMapEquipments(comparisonResult), [comparisonResult]);
 
   // Nettoyer le localStorage au chargement
   useEffect(() => {
@@ -1100,61 +1139,54 @@ export default function FeederProcessingPage() {
       const tableResult = comparisonResult.tables[table];
       if (!tableResult) continue;
       
-     // Dans FeederProcessingPage, quand tu crées les anomalies à partir de comparisonResult
-// Dans FeederProcessingPage, modifie la conversion des anomalies
-
-// Pour les MISSING (équipements manquants dans PostGIS)
-for (const missing of tableResult.missing) {
-  anomalies.push({
-    id: `${table}-miss-${missing.m_rid}`,
-    type: "missing",
-    table: table,
-    mrid: missing.m_rid,
-    name: missing.name,
-    // Les données sont directement dans missing, pas dans reference_data
-    data: missing,  // ← Ajoute les données directement
-  });
-}
-
-// Pour les DIVERGENCES
-for (const div of tableResult.divergences) {
-  anomalies.push({
-    id: `${table}-div-${div.mrid}`,
-    type: "divergence",
-    table: table,
-    mrid: div.mrid,
-    name: div.reference_data?.name || div.collected_data?.name || div.mrid,
-    reference_data: div.reference_data,
-    collected_data: div.collected_data,
-    divergent_fields: div.divergent_fields,
-  });
-}
-
-// Pour les NEW
-for (const newItem of tableResult.new) {
-  anomalies.push({
-    id: `${table}-new-${newItem.m_rid}`,
-    type: "new",
-    table: table,
-    mrid: newItem.m_rid,
-    name: newItem.name,
-    data: newItem,  // ← Les données sont directement dans newItem
-  });
-}
-// Convertir les doublons
-for (const dup of tableResult.duplicates) {
-  for (const occ of dup.occurrences) {
-    anomalies.push({
-      id: `${table}-dup-${occ.m_rid}`,
-      type: "duplicate",
-      table: table,
-      mrid: occ.m_rid,
-      name: occ.name,
-      duplicate_occurrences: dup.occurrences,    // ← Ajouter
-      collected_data: occ,    // ← Ajouter aussi la première occurrence
-    });
-  }
-}
+      for (const missing of tableResult.missing) {
+        anomalies.push({
+          id: `${table}-miss-${missing.m_rid}`,
+          type: "missing",
+          table: table,
+          mrid: missing.m_rid,
+          name: missing.name,
+          data: missing,
+        });
+      }
+      
+      for (const div of tableResult.divergences) {
+        anomalies.push({
+          id: `${table}-div-${div.mrid}`,
+          type: "divergence",
+          table: table,
+          mrid: div.mrid,
+          name: div.reference_data?.name || div.collected_data?.name || div.mrid,
+          reference_data: div.reference_data,
+          collected_data: div.collected_data,
+          divergent_fields: div.divergent_fields,
+        });
+      }
+      
+      for (const newItem of tableResult.new) {
+        anomalies.push({
+          id: `${table}-new-${newItem.m_rid}`,
+          type: "new",
+          table: table,
+          mrid: newItem.m_rid,
+          name: newItem.name,
+          data: newItem,
+        });
+      }
+      
+      for (const dup of tableResult.duplicates) {
+        for (const occ of dup.occurrences) {
+          anomalies.push({
+            id: `${table}-dup-${occ.m_rid}`,
+            type: "duplicate",
+            table: table,
+            mrid: occ.m_rid,
+            name: occ.name,
+            duplicate_occurrences: dup.occurrences,
+            collected_data: occ,
+          });
+        }
+      }
     }
     
     return anomalies;
@@ -1343,6 +1375,31 @@ for (const dup of tableResult.duplicates) {
     toast.success(`${equipment.name} sauvegardé`);
   }, []);
 
+  const handleMarkerClick = useCallback((equipment: Record<string, unknown>) => {
+    // Convertir l'équipement de la carte en EquipmentDetail pour l'ouvrir dans le sheet
+    const eq = equipment as EquipmentRecordWithAnomaly;
+    const equipmentDetail: EquipmentDetail = {
+      id: String(eq.m_rid),
+      mrid: String(eq.m_rid),
+      table: eq.table || "unknown",
+      name: eq.name || String(eq.m_rid),
+      data: eq,
+      anomalies: eq._anomalyType ? [{
+        id: `${eq.table}-${eq._anomalyType}-${eq.m_rid}`,
+        type: eq._anomalyType as AnomalyType,
+        table: eq.table || "unknown",
+        mrid: String(eq.m_rid),
+        name: eq.name || String(eq.m_rid),
+      }] : [],
+      location: eq.latitude && eq.longitude ? {
+        lat: typeof eq.latitude === "string" ? parseFloat(eq.latitude) : eq.latitude as number,
+        lng: typeof eq.longitude === "string" ? parseFloat(eq.longitude) : eq.longitude as number,
+      } : undefined,
+    };
+    setSelectedEquipment(equipmentDetail);
+    setIsSheetOpen(true);
+  }, []);
+
   const filteredTableGroups = useMemo(() => {
     return Array.from(anomaliesByTable.entries()).map(([table, anomalies]) => ({
       table,
@@ -1465,11 +1522,13 @@ for (const dup of tableResult.duplicates) {
         </div>
       )}
 
-      {/* Carte Leaflet - à implémenter avec les données de comparaison */}
-      <div className="w-full rounded-xl overflow-hidden border border-border" style={{ height: "30vh", minHeight: 160 }}>
-        <div className="flex items-center justify-center h-full bg-muted/20 text-muted-foreground text-sm">
-          Carte des équipements (à venir)
-        </div>
+      {/* Carte Leaflet avec FullscreenMap */}
+      <div className="w-full rounded-xl overflow-hidden border border-border" style={{ height: "40vh", minHeight: 300 }}>
+        <FullscreenMap 
+          equipments={mapEquipments}
+          onMarkerClick={handleMarkerClick}
+          feederColor="#6366f1"
+        />
       </div>
 
       {/* Équipements groupés par table */}
@@ -1541,6 +1600,16 @@ for (const dup of tableResult.duplicates) {
   );
 }
 
+// Type helper pour les équipements de la carte
+interface EquipmentRecordWithAnomaly extends Record<string, unknown> {
+  m_rid: string | number;
+  name?: string;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  type?: string;
+  table?: string;
+  _anomalyType?: string;
+}
 // "use client";
 
 // import { useState, useMemo, useCallback, useEffect, useRef } from "react";
