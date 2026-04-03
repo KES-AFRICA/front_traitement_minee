@@ -489,19 +489,19 @@ export default function FullscreenMap({
   }, [equipments, onMarkerClick, feederColor]);
   
   // Légende items
-  const legendItems = [
-    { table: "substation", label: "Poste source H61", shape: "circle", color: TABLE_COLORS.substation, type: "H61" },
-    { table: "substation", label: "Poste source H59", shape: "square", color: TABLE_COLORS.substation, type: "H59" },
-    { table: "substation", label: "Poste source (autre)", shape: "rectangle", color: TABLE_COLORS.substation },
-    { table: "feeder", label: "Départ", shape: "circle", color: TABLE_COLORS.feeder },
-    { table: "powertransformer", label: "Transformateur", shape: "square", color: TABLE_COLORS.powertransformer },
-    { table: "busbar", label: "Jeu de barres", shape: "diamond", color: TABLE_COLORS.busbar },
-    { table: "bay", label: "Cellule", shape: "circle", color: TABLE_COLORS.bay },
-    { table: "switch", label: "Interrupteur", shape: "octagon", color: TABLE_COLORS.switch },
-    { table: "wire", label: "Câble", shape: "circle", color: TABLE_COLORS.wire },
-    { table: "pole", label: "Poteau", shape: "triangle", color: TABLE_COLORS.pole },
-    { table: "node", label: "Nœud", shape: "circle", color: TABLE_COLORS.node },
-  ];
+  // const legendItems = [
+  //   { table: "substation", label: "Poste source H61", shape: "circle", color: TABLE_COLORS.substation, type: "H61" },
+  //   { table: "substation", label: "Poste source H59", shape: "square", color: TABLE_COLORS.substation, type: "H59" },
+  //   { table: "substation", label: "Poste source (autre)", shape: "rectangle", color: TABLE_COLORS.substation },
+  //   { table: "feeder", label: "Départ", shape: "circle", color: TABLE_COLORS.feeder },
+  //   { table: "powertransformer", label: "Transformateur", shape: "square", color: TABLE_COLORS.powertransformer },
+  //   { table: "busbar", label: "Jeu de barres", shape: "diamond", color: TABLE_COLORS.busbar },
+  //   { table: "bay", label: "Cellule", shape: "circle", color: TABLE_COLORS.bay },
+  //   { table: "switch", label: "Interrupteur", shape: "octagon", color: TABLE_COLORS.switch },
+  //   { table: "wire", label: "Câble", shape: "circle", color: TABLE_COLORS.wire },
+  //   { table: "pole", label: "Poteau", shape: "triangle", color: TABLE_COLORS.pole },
+  //   { table: "node", label: "Nœud", shape: "circle", color: TABLE_COLORS.node },
+  // ];
   
   const anomalyItems = [
     { type: "duplicate", label: "Doublon", color: ANOMALY_COLORS.duplicate },
@@ -574,7 +574,7 @@ export default function FullscreenMap({
           {isLegendOpen && (
             <div className="px-3 pb-3 space-y-2 text-[11px] border-t border-gray-100 max-h-96 overflow-y-auto">
               {/* Équipements par forme */}
-              <div className="space-y-1.5">
+              {/* <div className="space-y-1.5">
                 <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">ÉQUIPEMENTS</div>
                 {legendItems.map((item, idx) => {
                   let shapeEl = null;
@@ -592,7 +592,7 @@ export default function FullscreenMap({
                     </div>
                   );
                 })}
-              </div>
+              </div> */}
               
               {/* Anomalies */}
               <div className="space-y-1.5 pt-1.5 border-t border-gray-100">

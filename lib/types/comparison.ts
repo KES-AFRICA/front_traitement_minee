@@ -106,7 +106,7 @@ export interface Divergence {
 }
 
 export interface TableComparisonResult {
-  reference: any;
+ reference: Record<string, any>[] | null;
   table: TableName;
   duplicates: Duplicate[];
   new: Record<string, any>[];
