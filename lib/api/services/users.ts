@@ -1,4 +1,4 @@
-// lib/api/services/users.ts
+
 import {
   ApiResponse,
   PaginatedResponse,
@@ -7,160 +7,180 @@ import {
   AgentStats,
   Task,
 } from "../types";
-import { mockApiResponse } from "../client";
-import { mockUsers, mockAgentStats, mockTasks } from "../mock-data";
+import { api, mockApiResponse } from "../client";
+import { mockAgentStats, mockTasks } from "../mock-data";
 import { isWithinInterval } from "date-fns";
 
 interface UserFilters {
   role?: UserRole;
   isActive?: boolean;
   search?: string;
-  department?: string;
 }
 
-interface UserPagination {
-  page?: number;
-  pageSize?: number;
+// Helper pour mapper role_id (backend) → UserRole (frontend)
+function mapRoleIdToUserRole(roleId: number): UserRole {
+  switch (roleId) {
+    case 1: return 'admin';
+    case 2: return 'team_lead';
+    case 3: return 'validation_agent';
+    case 4: return 'processing_agent';
+    default: return 'processing_agent';
+  }
+}
+
+// Helper pour mapper UserRole → role_id (backend)
+function mapRoleToRoleId(role: UserRole): number {
+  switch (role) {
+    case 'admin': return 1;
+    case 'team_lead': return 2;
+    case 'validation_agent': return 3;
+    case 'processing_agent': return 4;
+    default: return 4;
+  }
 }
 
 class UserService {
-  private users: User[] = [...mockUsers];
-  private tasks: Task[] = [...mockTasks];
+  private tasks: Task[] = [...mockTasks]; 
 
+  // Récupération de tous les utilisateurs depuis le backend
   async getUsers(
     filters: UserFilters = {},
-    pagination: UserPagination = {}
+    pagination?: { page?: number; pageSize?: number }
   ): Promise<ApiResponse<PaginatedResponse<User>>> {
-    let filteredUsers = [...this.users];
+    try {
+      // Appel à l'API réelle
+      const usersData = await api.get<any[]>('/auth/users');
+      
+      // Transformation des données backend → format frontend
+      let users: User[] = usersData.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.full_name.split(' ')[0] || '',
+        lastName: u.full_name.split(' ').slice(1).join(' ') || '',
+        company: u.company,
+        role: mapRoleIdToUserRole(u.role_id),
+        isActive: u.is_active,
+        createdAt: new Date().toISOString(),
+        tasksAssigned: 0,
+        tasksCompleted: 0,
+        occupancyRate: 0,
+        status: 'hors ligne',
+        phone: '', 
+        password:'',
+      }));
 
-    // Apply filters
-    if (filters.role) {
-      filteredUsers = filteredUsers.filter((u) => u.role === filters.role);
-    }
-    if (filters.isActive !== undefined) {
-      filteredUsers = filteredUsers.filter((u) => u.isActive === filters.isActive);
-    }
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      filteredUsers = filteredUsers.filter(
-        (u) =>
+      // Filtrage côté frontend (si nécessaire)
+      if (filters.role) {
+        users = users.filter(u => u.role === filters.role);
+      }
+      if (filters.isActive !== undefined) {
+        users = users.filter(u => u.isActive === filters.isActive);
+      }
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase();
+        users = users.filter(u =>
           u.firstName.toLowerCase().includes(searchLower) ||
           u.lastName.toLowerCase().includes(searchLower) ||
           u.email.toLowerCase().includes(searchLower)
-      );
+        );
+      }
+
+      // Pagination côté frontend (simple)
+      const page = pagination?.page || 1;
+      const pageSize = pagination?.pageSize || 10;
+      const total = users.length;
+      const totalPages = Math.ceil(total / pageSize);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+
+      return {
+        data: {
+          data: users.slice(start, end),
+          total,
+          page,
+          pageSize,
+          totalPages,
+        },
+      };
+    } catch (error: any) {
+      return { error: error.message || 'Erreur lors du chargement des utilisateurs' };
     }
-
-    // Pagination
-    const page = pagination.page || 1;
-    const pageSize = pagination.pageSize || 10;
-    const total = filteredUsers.length;
-    const totalPages = Math.ceil(total / pageSize);
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-
-    return mockApiResponse<PaginatedResponse<User>>({
-      data: filteredUsers.slice(start, end),
-      total,
-      page,
-      pageSize,
-      totalPages,
-    });
   }
 
   async getUserById(id: string): Promise<ApiResponse<User>> {
-    const user = this.users.find((u) => u.id === id);
-    if (!user) {
-      return { error: "User not found" };
+    try {
+      const users = await this.getUsers();
+      if (users.data) {
+        const user = users.data.data.find(u => u.id === id);
+        if (user) return { data: user };
+      }
+      return { error: 'User not found' };
+    } catch {
+      return { error: 'User not found' };
     }
-    return mockApiResponse(user);
   }
 
-  async createUser(userData: Partial<User>): Promise<ApiResponse<User>> {
-    // Check if email already exists
-    if (this.users.some((u) => u.email === userData.email)) {
-      return { error: "Email already exists" };
+  async createUser(userData: Partial<User> & { password: string }): Promise<ApiResponse<User>> {
+    try {
+      const payload = {
+        email: userData.email,
+        full_name: `${userData.firstName} ${userData.lastName}`,
+        company: userData.company,
+        role_id: mapRoleToRoleId(userData.role!),
+        password: userData.password, // Mot de passe obligatoire
+      };
+      await api.post('/auth/users', payload);
+      // Après création, on ne retourne pas l'utilisateur du backend, on simule un retour
+      const newUser: User = {
+        id: 'temp-id', // ne sera pas utilisé en vrai
+        email: userData.email!,
+        firstName: userData.firstName!,
+        lastName: userData.lastName!,
+        role: userData.role!,
+        company: userData.company!,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        tasksAssigned: 0,
+        tasksCompleted: 0,
+        occupancyRate: 0,
+        status: 'hors ligne',
+        phone: '',
+        password:'',
+      };
+      return { data: newUser };
+    } catch (error: any) {
+      return { error: error.message || 'Erreur lors de la création' };
     }
-
-    const newUser: User = {
-      id: String(this.users.length + 1),
-      email: userData.email || "",
-      firstName: userData.firstName || "",
-      lastName: userData.lastName || "",
-      role: userData.role || "processing_agent",
-      phone: userData.phone,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      tasksAssigned: 0,
-      tasksCompleted: 0,
-      occupancyRate: 0,
-      status: 'hors ligne',
-      company: userData.company || ""
-    };
-
-    this.users.push(newUser);
-    return mockApiResponse(newUser);
   }
 
+  // Les méthodes update, delete, toggle restent mockées (en attente des endpoints backend)
   async updateUser(id: string, updates: Partial<User>): Promise<ApiResponse<User>> {
-    const userIndex = this.users.findIndex((u) => u.id === id);
-    if (userIndex === -1) {
-      return { error: "User not found" };
-    }
-
-    // Check email uniqueness if updating email
-    if (
-      updates.email &&
-      updates.email !== this.users[userIndex].email &&
-      this.users.some((u) => u.email === updates.email)
-    ) {
-      return { error: "Email already exists" };
-    }
-
-    this.users[userIndex] = {
-      ...this.users[userIndex],
-      ...updates,
-    };
-
-    return mockApiResponse(this.users[userIndex]);
+    // TODO: appeler PUT /auth/users/{id} quand disponible
+    return { error: 'Not implemented yet' };
   }
 
   async deleteUser(id: string): Promise<ApiResponse<void>> {
-    const userIndex = this.users.findIndex((u) => u.id === id);
-    if (userIndex === -1) {
-      return { error: "User not found" };
-    }
-
-    // Soft delete - set as inactive
-    this.users[userIndex].isActive = false;
-    return mockApiResponse(undefined);
+    // TODO: appeler DELETE /auth/users/{id} quand disponible
+    return { error: 'Not implemented yet' };
   }
 
   async toggleUserStatus(id: string): Promise<ApiResponse<User>> {
-    const userIndex = this.users.findIndex((u) => u.id === id);
-    if (userIndex === -1) {
-      return { error: "User not found" };
-    }
-
-    this.users[userIndex].isActive = !this.users[userIndex].isActive;
-    return mockApiResponse(this.users[userIndex]);
+    // TODO: appeler PATCH /auth/users/{id}/toggle quand disponible
+    return { error: 'Not implemented yet' };
   }
 
+  // Statistiques (mockées, à remplacer plus tard)
   async getAgentStats(startDate?: Date, endDate?: Date): Promise<ApiResponse<AgentStats[]>> {
-    // Filtrer les tâches par période si des dates sont fournies
+    // Garde l'ancien mock (inchangé)
     let filteredTasks = [...this.tasks];
-    
     if (startDate && endDate) {
       filteredTasks = filteredTasks.filter(task => {
         const createdAt = new Date(task.createdAt);
         const completedAt = task.completedAt ? new Date(task.completedAt) : null;
-        
-        // Une tâche est considérée dans la période si elle a été créée OU complétée pendant la période
         return isWithinInterval(createdAt, { start: startDate, end: endDate }) ||
           (completedAt && isWithinInterval(completedAt, { start: startDate, end: endDate }));
       });
     }
-
-    // Recalculer les statistiques pour chaque agent basé sur les tâches filtrées
     const updatedStats = mockAgentStats.map(stat => {
       const userTasks = filteredTasks.filter(task => task.assignedTo === stat.userId);
       const tasksAssigned = userTasks.length;
@@ -169,17 +189,12 @@ class UserService {
       ).length;
       const tasksValidated = userTasks.filter(task => task.status === "validated").length;
       const tasksRejected = userTasks.filter(task => task.status === "rejected").length;
-      
-      // Calculer le taux d'occupation basé sur les tâches assignées vs capacité (max 100 par agent)
       const maxCapacity = 100;
       const occupancyRate = Math.min(Math.round((tasksAssigned / maxCapacity) * 100), 100);
-      
-      // Calculer le temps de traitement moyen pour les tâches complétées
       const completedTasksWithTime = userTasks.filter(task => 
         (task.status === "completed" || task.status === "validated") && 
         task.completedAt
       );
-      
       let avgProcessingTime = 0;
       if (completedTasksWithTime.length > 0) {
         const totalProcessingTime = completedTasksWithTime.reduce((sum, task) => {
@@ -190,8 +205,6 @@ class UserService {
         }, 0);
         avgProcessingTime = parseFloat((totalProcessingTime / completedTasksWithTime.length).toFixed(1));
       }
-      
-      // Calculer l'efficacité basée sur le taux de validation
       let efficiency = 0;
       if (tasksCompleted > 0) {
         efficiency = Math.round((tasksValidated / tasksCompleted) * 100);
@@ -200,57 +213,36 @@ class UserService {
       } else {
         efficiency = stat.efficiency;
       }
-      
-      return {
-        ...stat,
-        tasksAssigned,
-        tasksCompleted,
-        tasksValidated,
-        tasksRejected,
-        occupancyRate,
-        avgProcessingTime,
-        efficiency,
-      };
+      return { ...stat, tasksAssigned, tasksCompleted, tasksValidated, tasksRejected, occupancyRate, avgProcessingTime, efficiency };
     });
-    
     return mockApiResponse(updatedStats);
   }
 
   async getUserStats(userId: string, startDate?: Date, endDate?: Date): Promise<ApiResponse<AgentStats>> {
-    // Filtrer les tâches par période
+    // Mock identique à l'original
     let filteredTasks = [...this.tasks];
-    
     if (startDate && endDate) {
       filteredTasks = filteredTasks.filter(task => {
         const createdAt = new Date(task.createdAt);
         return isWithinInterval(createdAt, { start: startDate, end: endDate });
       });
     }
-    
     const userTasks = filteredTasks.filter(task => task.assignedTo === userId);
-    const user = this.users.find((u) => u.id === userId);
-    
-    if (!user) {
-      return { error: "User not found" };
-    }
-    
+    const usersRes = await this.getUsers();
+    const user = usersRes.data?.data.find(u => u.id === userId);
+    if (!user) return { error: "User not found" };
     const tasksAssigned = userTasks.length;
     const tasksCompleted = userTasks.filter(task => 
       task.status === "completed" || task.status === "validated"
     ).length;
     const tasksValidated = userTasks.filter(task => task.status === "validated").length;
     const tasksRejected = userTasks.filter(task => task.status === "rejected").length;
-    
-    // Calculer le taux d'occupation
     const maxCapacity = 100;
     const occupancyRate = Math.min(Math.round((tasksAssigned / maxCapacity) * 100), 100);
-    
-    // Calculer le temps de traitement moyen
     const completedTasksWithTime = userTasks.filter(task => 
       (task.status === "completed" || task.status === "validated") && 
       task.completedAt
     );
-    
     let avgProcessingTime = 0;
     if (completedTasksWithTime.length > 0) {
       const totalProcessingTime = completedTasksWithTime.reduce((sum, task) => {
@@ -261,40 +253,29 @@ class UserService {
       }, 0);
       avgProcessingTime = parseFloat((totalProcessingTime / completedTasksWithTime.length).toFixed(1));
     }
-    
-    // Calculer l'efficacité
     let efficiency = 0;
     if (tasksCompleted > 0) {
       efficiency = Math.round((tasksValidated / tasksCompleted) * 100);
     }
-    
-    const stats: AgentStats = {
-      userId,
-      user,
-      tasksAssigned,
-      tasksCompleted,
-      tasksValidated,
-      tasksRejected,
-      occupancyRate,
-      avgProcessingTime,
-      efficiency,
-    };
-    
+    const stats: AgentStats = { userId, user, tasksAssigned, tasksCompleted, tasksValidated, tasksRejected, occupancyRate, avgProcessingTime, efficiency };
     return mockApiResponse(stats);
   }
 
+  // Agents de traitement : filtre depuis l'API réelle
   async getProcessingAgents(): Promise<ApiResponse<User[]>> {
-    const agents = this.users.filter(
-      (u) => u.role === "processing_agent" && u.isActive
-    );
-    return mockApiResponse(agents);
+    const res = await this.getUsers({ role: 'processing_agent', isActive: true });
+    if (res.data) {
+      return { data: res.data.data };
+    }
+    return { error: res.error };
   }
 
   async getValidationAgents(): Promise<ApiResponse<User[]>> {
-    const agents = this.users.filter(
-      (u) => u.role === "validation_agent" && u.isActive
-    );
-    return mockApiResponse(agents);
+    const res = await this.getUsers({ role: 'validation_agent', isActive: true });
+    if (res.data) {
+      return { data: res.data.data };
+    }
+    return { error: res.error };
   }
 }
 

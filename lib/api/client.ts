@@ -31,10 +31,7 @@ class ApiClient {
     const url = `${this.baseUrl}${endpoint}`;
 
     try {
-      // For now, we simulate the API calls
-      // In production, replace with actual fetch
       await simulateDelay();
-
       const response = await fetch(url, {
         ...options,
         headers: {
@@ -42,7 +39,7 @@ class ApiClient {
           ...options.headers,
         },
       });
-
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -110,3 +107,37 @@ export async function mockApiError(
   await simulateDelay(delay);
   return { error };
 }
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8085';
+
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(token && { Authorization: `Bearer ${token}` }),
+    ...options.headers,
+  };
+
+  const response = await fetch(url, { ...options, headers });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export const api = {
+  get: <T>(endpoint: string) => request<T>(endpoint, { method: 'GET' }),
+  post: <T>(endpoint: string, data?: any) =>
+    request<T>(endpoint, { method: 'POST', body: JSON.stringify(data) }),
+  put: <T>(endpoint: string, data?: any) =>
+    request<T>(endpoint, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: <T>(endpoint: string) => request<T>(endpoint, { method: 'DELETE' }),
+};

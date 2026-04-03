@@ -112,7 +112,7 @@ export default function UsersPage() {
     email: "",
     firstName: "",
     lastName: "",
-    phone: "",
+    password: "",
     company: "" as Company | "",
     role: "processing_agent" as UserRole,
   });
@@ -164,7 +164,7 @@ export default function UsersPage() {
       email: "",
       firstName: "",
       lastName: "",
-      phone: "",
+      password: "",
       company: "",
       role: "processing_agent",
     });
@@ -251,7 +251,7 @@ export default function UsersPage() {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      phone: user.phone || "",
+      password: user.password,
       company: (user.company as Company) || "",
       role: user.role,
     });
@@ -585,7 +585,7 @@ interface UserFormProps {
     email: string;
     firstName: string;
     lastName: string;
-    phone: string;
+    password: string;
     company: Company | "";
     role: UserRole;
   };
@@ -642,15 +642,14 @@ function UserForm({ formData, setFormData, t }: UserFormProps) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="phone">{t("users.phone")}</Label>
+            <Label htmlFor="password">Mot de passe *</Label>
             <Input
-              id="phone"
-              type="tel"
-              autoComplete="tel"
-              inputMode="tel"
-              value={formData.phone}
+              id="password"
+              type="password"
+              required
+              value={formData.password}
               onChange={(e) =>
-                setFormData((prev) => ({ ...prev, phone: e.target.value }))
+                setFormData((prev) => ({ ...prev, password: e.target.value }))
               }
             />
           </div>

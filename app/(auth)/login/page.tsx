@@ -52,13 +52,6 @@ export default function LoginPage() {
     }
   };
 
-  const demoAccounts = [
-    { role: "Admin", email: "admin@minee.cm", password: "admin123" },
-    { role: "Chef d'équipe", email: "marie.ekotto@minee.cm", password: "team123" },
-    { role: "Agent validation", email: "paul.mvondo@minee.cm", password: "valid123" },
-    { role: "Agent traitement", email: "agnes.fotso@minee.cm", password: "process123" },
-  ];
-
   const handleDemoSelect = (email: string, password: string) => {
     setEmail(email);
     setPassword(password);
@@ -229,37 +222,6 @@ export default function LoginPage() {
                   )}
                 </Button>
               </form>
-
-              {/* Demo Credentials - Dropdown */}
-              <div className="mt-6">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button 
-                      variant="outline" 
-                      className="w-full justify-between"
-                      disabled={isLoading}
-                    >
-                      <span>Comptes de démonstration</span>
-                      <ChevronDown className="h-4 w-4 opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]">
-                    {demoAccounts.map((account, index) => (
-                      <DropdownMenuItem
-                        key={index}
-                        onClick={() => handleDemoSelect(account.email, account.password)}
-                        className="flex flex-col items-start py-2 cursor-pointer"
-                      >
-                        <span className="font-medium">{account.role}</span>
-                        <span className="text-xs text-muted-foreground">{account.email}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <p className="text-xs text-muted-foreground mt-2 text-center">
-                  Sélectionnez un compte pour remplir automatiquement les champs
-                </p>
-              </div>
             </CardContent>
           </Card>
         </div>
