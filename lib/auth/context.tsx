@@ -1,143 +1,3 @@
-// "use client";
-
-// /**
-//  * ============================================================
-//  * TADEC — Auth Context (v2 — RBAC centralisé)
-//  * ============================================================
-//  * Remplace l'ancienne version inline. Délègue les permissions
-//  * à lib/auth/permissions.ts (source de vérité unique).
-//  */
-
-// import React, {
-//   createContext,
-//   useContext,
-//   useState,
-//   useCallback,
-//   useMemo,
-//   useEffect,
-// } from "react";
-// import { User, UserRole } from "@/lib/api/types";
-// import { authService } from "@/lib/api/services/auth";
-// import {
-//   Permission,
-//   ROLE_PERMISSIONS,
-//   roleHasPermission,
-// } from "@/lib/auth/permissions";
-
-// interface AuthContextType {
-//   user: User | null;
-//   isAuthenticated: boolean;
-//   isLoading: boolean;
-//   login: (
-//     email: string,
-//     password: string
-//   ) => Promise<{ success: boolean; error?: string }>;
-//   logout: () => void;
-//   /** Vérifie une permission (string brute ou constante Permission) */
-//   hasPermission: (permission: string) => boolean;
-//   /** Vérifie si l'utilisateur a l'un des rôles fournis */
-//   hasRole: (roles: UserRole | UserRole[]) => boolean;
-//   /** Toutes les permissions de l'utilisateur courant */
-//   permissions: Permission[];
-// }
-
-// const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// export function AuthProvider({ children }: { children: React.ReactNode }) {
-//   const [user, setUser] = useState<User | null>(null);
-//   const [isLoading, setIsLoading] = useState(true);
-
-//   // ── Restauration de session ────────────────────────────────────────────────
-//   useEffect(() => {
-//     const checkSession = async () => {
-//       try {
-//         const storedUser = localStorage.getItem("minee-user");
-//         if (storedUser) {
-//           const userData: User = JSON.parse(storedUser);
-//           setUser(userData);
-//         }
-//       } catch {
-//         localStorage.removeItem("minee-user");
-//       } finally {
-//         setIsLoading(false);
-//       }
-//     };
-//     checkSession();
-//   }, []);
-
-//   // ── Login ──────────────────────────────────────────────────────────────────
-//   const login = useCallback(async (email: string, password: string) => {
-//     try {
-//       const response = await authService.login({ email, password });
-//       if (response.data) {
-//         const { user: userData } = response.data;
-//         setUser(userData);
-//         localStorage.setItem("minee-user", JSON.stringify(userData));
-//         return { success: true };
-//       }
-//       return { success: false, error: "Identifiants invalides" };
-//     } catch {
-//       return { success: false, error: "Erreur de connexion" };
-//     }
-//   }, []);
-
-//   // ── Logout ─────────────────────────────────────────────────────────────────
-//   const logout = useCallback(() => {
-//     setUser(null);
-//     localStorage.removeItem("minee-user");
-//     authService.logout();
-//   }, []);
-
-//   // ── Permissions calculées depuis la matrice centralisée ───────────────────
-//   const permissions = useMemo<Permission[]>(() => {
-//     if (!user) return [];
-//     return ROLE_PERMISSIONS[user.role] ?? [];
-//   }, [user]);
-
-//   const hasPermission = useCallback(
-//     (permission: string): boolean => {
-//       if (!user) return false;
-//       return roleHasPermission(user.role, permission as Permission);
-//     },
-//     [user]
-//   );
-
-//   const hasRole = useCallback(
-//     (roles: UserRole | UserRole[]): boolean => {
-//       if (!user) return false;
-//       const roleArray = Array.isArray(roles) ? roles : [roles];
-//       return roleArray.includes(user.role);
-//     },
-//     [user]
-//   );
-
-//   // ── Context value (mémoïsé) ───────────────────────────────────────────────
-//   const contextValue = useMemo(
-//     () => ({
-//       user,
-//       isAuthenticated: !!user,
-//       isLoading,
-//       login,
-//       logout,
-//       hasPermission,
-//       hasRole,
-//       permissions,
-//     }),
-//     [user, isLoading, login, logout, hasPermission, hasRole, permissions]
-//   );
-
-//   return (
-//     <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
-//   );
-// }
-
-// export function useAuth() {
-//   const context = useContext(AuthContext);
-//   if (!context) {
-//     throw new Error("useAuth must be used within an AuthProvider");
-//   }
-//   return context;
-// }
 
 "use client";
 
@@ -169,7 +29,9 @@ interface AuthContextType {
   isLoading: boolean;
   login: (
     email: string,
-    password: string
+    password: string,
+    latitude?: number,
+    longitude?: number
   ) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
@@ -204,9 +66,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ── Login ──────────────────────────────────────────────────────────────────
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, latitude: number = 0, longitude: number = 0) => {
     try {
-      const response = await authService.login({ email, password });
+      const response = await authService.login({ email, password }, latitude, longitude);
       if (response.data) {
         const { user: userData } = response.data;
         setUser(userData);

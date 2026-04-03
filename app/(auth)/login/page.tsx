@@ -7,19 +7,11 @@ import { useI18n } from "@/lib/i18n/context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
-import { LanguageSwitch } from "@/components/shared/language-switch";
-import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { AlertCircle, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -32,13 +24,35 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const getCurrentPosition = (): Promise<{ latitude: number; longitude: number }> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({ latitude: 0, longitude: 0 });
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        },
+        () => {
+          resolve({ latitude: 0, longitude: 0 });
+        },
+        { timeout: 5000 }
+      );
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
 
     try {
-      const result = await login(email, password);
+      const { latitude, longitude } = await getCurrentPosition();
+      const result = await login(email, password, latitude, longitude);
       if (result.success) {
         toast.success(t("auth.welcomeBack"));
         router.push("/dashboard");
@@ -50,14 +64,6 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleDemoSelect = (email: string, password: string) => {
-    setEmail(email);
-    setPassword(password);
-    toast.info(`Compte ${email.split('@')[0]} sélectionné`, {
-      description: "Cliquez sur Se connecter pour continuer",
-    });
   };
 
   return (
