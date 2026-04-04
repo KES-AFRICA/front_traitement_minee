@@ -26,7 +26,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       name: "BON.D11 BONABERI VILLE",
       voltage: 15,
       is_injection: false,
-      created_date: "2026-03-27 04:52:46.000000",
+      created_date: "2026-04-01 04:52:46.000000",
       local_name: "",
     },
     // D12 non collecté → sera "missing"
@@ -51,7 +51,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:07:56.000000",
+      created_date: "2026-04-01 11:07:56.000000",
     },
 
     // ✅ DUPLICATE — Doublon de 8310710, même m_rid saisi une seconde fois
@@ -72,7 +72,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:07:56.000000",
+      created_date: "2026-04-01 11:07:56.000000",
     },
 
     // ✅ DIVERGENCE — type est "H61" alors que BD1 dit "H59"
@@ -92,7 +92,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:07:57.000000",
+      created_date: "2026-04-01 11:07:57.000000",
     },
 
     // ✅ CORRECT — Identique à BD1
@@ -112,7 +112,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:07:56.000000",
+      created_date: "2026-04-01 11:07:56.000000",
     },
 
     // ✅ DIVERGENCE — name légèrement différent (faute de frappe terrain)
@@ -132,7 +132,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:07:56.000000",
+      created_date: "2026-04-01 11:07:56.000000",
     },
 
     // ✅ NEW — Poste inconnu de BD1, découvert sur le terrain
@@ -152,7 +152,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: false,
-      created_date: "2026-03-27 08:30:00.000000",
+      created_date: "2026-04-01 08:30:00.000000",
     },
 
     // ✅ DIVERGENCE — regime "DP" au lieu de "PR"
@@ -172,7 +172,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:07:56.000000",
+      created_date: "2026-04-01 11:07:56.000000",
     },
 
     // Les autres substations D11 ne sont PAS dans BD2 → elles seront "MISSING"
@@ -197,7 +197,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       w2_voltage: 0.4,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:08:24.000000",
+      created_date: "2026-04-01 11:08:24.000000",
     },
 
     // ✅ DIVERGENCE — apparent_power 250 au lieu de 400 (agent a noté la mauvaise plaque)
@@ -212,7 +212,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       w2_voltage: 0.4,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:08:23.000000",
+      created_date: "2026-04-01 11:08:23.000000",
     },
 
     // ✅ CORRECT
@@ -227,7 +227,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       w2_voltage: 0.4,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:08:23.000000",
+      created_date: "2026-04-01 11:08:23.000000",
     },
 
     // ✅ NEW — Transformateur inconnu, associé au nouveau poste terrain
@@ -242,7 +242,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       w2_voltage: 0.4,
       active: true,
       display_scada: false,
-      created_date: "2026-03-27 08:45:00.000000",
+      created_date: "2026-04-01 08:45:00.000000",
     },
 
     // ✅ DIVERGENCE — w2_voltage incorrect (agent a noté 0.23 au lieu de 0.4)
@@ -257,7 +257,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       w2_voltage: 0.23,          // ← DIVERGENCE : BD1 a 0.4
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:08:23.000000",
+      created_date: "2026-04-01 11:08:23.000000",
     },
   ],
 
@@ -275,7 +275,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       is_feederhead: false,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:06:41.000000",
+      created_date: "2026-04-01 11:06:41.000000",
     },
 
     // ✅ COMPLEX — substation_id pointe vers 9999002 qui n'existe ni en BD1 ni en BD2
@@ -291,7 +291,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       is_feederhead: false,
       active: true,
       display_scada: false,
-      created_date: "2026-03-27 09:00:00.000000",
+      created_date: "2026-04-01 09:00:00.000000",
     },
 
     // ✅ DIVERGENCE — voltage 11 au lieu de 15 kV
@@ -306,7 +306,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       is_feederhead: false,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:06:41.000000",
+      created_date: "2026-04-01 11:06:41.000000",
     },
   ],
 
@@ -324,7 +324,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:06:28.000000",
+      created_date: "2026-04-01 11:06:28.000000",
     },
 
     // ✅ DIVERGENCE — section "22" au lieu de "34" (plaque lue différemment)
@@ -339,7 +339,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:06:28.000000",
+      created_date: "2026-04-01 11:06:28.000000",
     },
 
     // ✅ NEW — Conducteur nouveau découvert sur le terrain
@@ -354,7 +354,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: false,
-      created_date: "2026-03-27 09:15:00.000000",
+      created_date: "2026-04-01 09:15:00.000000",
     },
   ],
 
@@ -369,7 +369,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       busbar_id1: "8310710_JDB01",
       busbar_id2: "",
       substation_id: 8310710,
-      created_date: "2026-03-27 11:07:17.000000",
+      created_date: "2026-04-01 11:07:17.000000",
       active: true,
       display_scada: true,
     },
@@ -383,7 +383,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       busbar_id1: "8310710_JDB01",
       busbar_id2: "",
       substation_id: 8310710,
-      created_date: "2026-03-27 11:07:17.000000",
+      created_date: "2026-04-01 11:07:17.000000",
       active: true,
       display_scada: true,
     },
@@ -397,7 +397,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       busbar_id1: "8310710_JDB01",
       busbar_id2: "",
       substation_id: 9999001,
-      created_date: "2026-03-27 09:20:00.000000",
+      created_date: "2026-04-01 09:20:00.000000",
       active: true,
       display_scada: false,
     },
@@ -422,7 +422,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:09:30.000000",
+      created_date: "2026-04-01 11:09:30.000000",
     },
 
     // ✅ DIVERGENCE — normal_open: true au lieu de false (état différent constaté)
@@ -442,7 +442,7 @@ export const layer2DB: Partial<EneoAssetsDB> = {
       feeder_id: 10411,
       active: true,
       display_scada: true,
-      created_date: "2026-03-27 11:09:28.000000",
+      created_date: "2026-04-01 11:09:28.000000",
     },
   ],
 

@@ -64,8 +64,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { EneoDeparture, EneoRegion, EneoZone } from "@/lib/api/eneo-data";
-import { DistributionTree } from "../distribution/distribution-tree";
+// import { DistributionTree } from "../distribution/distribution-tree";
 import { cn } from "@/lib/utils";
+import { FeedersTree } from "../distribution/feeders-tree";
 
 const roleLabels: Record<string, string> = {
   admin:             "Administrateur",

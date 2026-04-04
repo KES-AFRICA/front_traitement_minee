@@ -57,8 +57,27 @@ function makeSVGIcon(eq: EquipmentRecord, L: any): any {
   const color = TABLE_COLORS[eq.table || ""] || "#6366f1";
   const table = eq.table || "";
 
+  // Label central selon le type
+  const typeRaw = (eq.type as string) ?? "";
+  let label = "";
+  if (typeRaw === "H61") label = "H61";
+  else if (typeRaw === "H59") label = "H59";
+  else if (typeRaw) label = "S";
+
+  // Forme selon le type (substation uniquement), sinon comportement original
   let shape = "";
-  if (table === "substation" || table === "feeder") {
+  if (table === "substation") {
+    if (typeRaw === "H61") {
+      // Rond
+      shape = `<circle cx="14" cy="14" r="11" fill="${color}" stroke="white" stroke-width="2.5"/>`;
+    } else if (typeRaw === "H59") {
+      // Carré
+      shape = `<rect x="3" y="3" width="22" height="22" rx="3" fill="${color}" stroke="white" stroke-width="2.5"/>`;
+    } else {
+      // Rectangle (S ou autre)
+      shape = `<rect x="2" y="6" width="24" height="16" rx="3" fill="${color}" stroke="white" stroke-width="2.5"/>`;
+    }
+  } else if (table === "feeder") {
     shape = `<circle cx="14" cy="14" r="10" fill="${color}" stroke="white" stroke-width="2.5"/>`;
   } else if (table === "powertransformer") {
     shape = `<rect x="4" y="4" width="20" height="20" rx="3" fill="${color}" stroke="white" stroke-width="2.5"/>`;
@@ -72,9 +91,14 @@ function makeSVGIcon(eq: EquipmentRecord, L: any): any {
     shape = `<circle cx="14" cy="14" r="10" fill="${color}" stroke="white" stroke-width="2.5"/>`;
   }
 
+  // Label centré (remplace le petit point blanc)
+  const labelEl = label
+    ? `<text x="14" y="18" text-anchor="middle" font-size="9" font-weight="700" fill="white" font-family="sans-serif">${label}</text>`
+    : `<circle cx="14" cy="14" r="3" fill="white" opacity="0.9"/>`;
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="32" height="32">
     ${shape}
-    <circle cx="14" cy="14" r="3" fill="white" opacity="0.9"/>
+    ${labelEl}
   </svg>`;
 
   return L.divIcon({
@@ -350,14 +374,14 @@ export default function FullscreenMap({
         }
 
         // ── 1. Polylines EN PREMIER (sous les markers) ────────────────────
-        const segments = buildSegments(eqs);
-        for (const seg of segments) {
-          L.polyline(seg, {
-            color:   feederColor,
-            weight:  2.5,
-            opacity: 0.8,
-          }).addTo(layerGroup.current);
-        }
+        //const segments = buildSegments(eqs);
+        // for (const seg of segments) {
+        //   L.polyline(seg, {
+        //     color:   feederColor,
+        //     weight:  2.5,
+        //     opacity: 0.8,
+        //   }).addTo(layerGroup.current);
+        // }
 
         // ── 2. Markers PAR DESSUS ─────────────────────────────────────────
         const allCoords: [number, number][] = [];
