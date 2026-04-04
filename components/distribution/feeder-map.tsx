@@ -45,10 +45,11 @@ const TABLE_COLORS: Record<string, string> = {
 
 // ─── Couleur par anomalie (prioritaire) ──────────────────────────────────────
 const ANOMALY_COLORS: Record<string, string> = {
+  ok:"#3b82f6",
   duplicate:  "#a855f7",  // purple
   divergence: "#f59e0b",  // amber
   new:        "#10b981",  // emerald
-  missing:    "#f97316",  // orange
+  missing:    "#ff0000",  // red
   complex:    "#ef4444",  // red
 };
 
