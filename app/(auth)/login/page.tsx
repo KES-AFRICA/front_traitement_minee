@@ -27,20 +27,30 @@ export default function LoginPage() {
   const getCurrentPosition = (): Promise<{ latitude: number; longitude: number }> => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
+        console.warn("Géolocalisation non supportée par le navigateur");
         resolve({ latitude: 0, longitude: 0 });
         return;
       }
+
+      // Demande la position avec un timeout plus long
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          console.log("Position obtenue:", position.coords.latitude, position.coords.longitude);
           resolve({
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           });
         },
-        () => {
+        (error) => {
+          console.warn("Erreur de géolocalisation:", error.message);
+          // En cas de refus ou d'erreur, on renvoie 0,0
           resolve({ latitude: 0, longitude: 0 });
         },
-        { timeout: 5000 }
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,      // 10 secondes max
+          maximumAge: 0,       // Ne pas utiliser de cache
+        }
       );
     });
   };
@@ -51,16 +61,21 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
+      // Récupération de la position (toujours, avec valeur par défaut 0,0)
       const { latitude, longitude } = await getCurrentPosition();
+
       const result = await login(email, password, latitude, longitude);
+
       if (result.success) {
         toast.success(t("auth.welcomeBack"));
         router.push("/dashboard");
       } else {
+        // Afficher le message d'erreur retourné par le backend ou un message générique
         setError(result.error || t("auth.invalidCredentials"));
       }
-    } catch {
-      setError(t("errors.networkError"));
+    } catch (err: any) {
+      // Cas où l'erreur n'est pas capturée par login (ex: réseau)
+      setError(err.message || t("errors.networkError"));
     } finally {
       setIsLoading(false);
     }
