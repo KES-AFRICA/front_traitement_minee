@@ -116,7 +116,7 @@ function makeSVGIcon(eq: EquipmentRecord, L: any): any {
   let label = "";
   if (type === "H61") label = "H61";
   else if (type === "H59") label = "H59";
-  else if (type) label = type.substring(0, 1);
+  else if (type) label = type.substring(0, 1).toUpperCase();
   
   // Construction de la forme
   let shapeSvg = "";
@@ -226,14 +226,7 @@ function makePopupHtml(eq: EquipmentRecord): string {
         <span style="margin-left:4px;background:${color}20;color:${color};padding:2px 8px;border-radius:4px">${eq.type || "—"}</span>
       </div>
       <div style="max-height:180px;overflow-y:auto">${rows}</div>
-      ${locationInfo}
-      ${anomalyBadge}
-      <button 
-        style="margin-top:8px;padding:6px 12px;background:#6366f1;color:white;border:none;border-radius:6px;font-size:11px;cursor:pointer;width:100%;font-weight:500"
-        onclick="window.__markerClickCallback && window.__markerClickCallback(${JSON.stringify(eq).replace(/"/g, '&quot;')})"
-      >
-        📋 Voir tous les détails →
-      </button>
+
     </div>`;
 }
 
