@@ -10,7 +10,7 @@ import {
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
   Layers, Info, MapPin, Save, UserCheck, Filter,
   Play, Timer, User, RefreshCw,
-  Maximize2
+  Maximize2, Loader2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,6 +88,24 @@ interface TreatmentState {
   };
 }
 
+// ─── Fonction pour formater la durée (secondes → Jours/Heures/Minutes/Secondes) ───
+const formatDuration = (seconds: number | null | undefined): string => {
+  if (!seconds) return "—";
+  
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  
+  const parts = [];
+  if (days > 0) parts.push(`${days}j`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+  
+  return parts.join(' ');
+};
+
 // ─── KPI Config ───────────────────────────────────────────────────────
 const KPI_CONFIG = [
   { type: "all" as const, label: "Tous", icon: Filter, color: "text-slate-600 dark:text-slate-400", bg: "bg-slate-500/10", activeBg: "bg-slate-500/15", activeBorder: "border-slate-500/50" },
@@ -100,8 +118,6 @@ const KPI_CONFIG = [
 ] as const;
 
 // ─── Mapping noms frontend → noms tables PostgreSQL ───────────────────
-// CORRECTION : les clés frontend (ex: "powertransformer") ne correspondent
-// pas aux vrais noms de tables SQL (ex: "power_transformers").
 const TABLE_NAME_MAP: Record<string, string> = {
   powertransformer: "power_transformers",
   substation:       "substations",
@@ -219,7 +235,7 @@ function AssignDialog({
           <div className="space-y-2">
             <Label htmlFor="agent">Sélectionner un agent de traitement</Label>
             <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-              <SelectTrigger id="agent" className="w-full">
+              <SelectTrigger id="agent" className="w-full cursor-pointer">
                 <SelectValue placeholder="Choisir un agent..." />
               </SelectTrigger>
               <SelectContent>
@@ -229,7 +245,7 @@ function AssignDialog({
                   </SelectItem>
                 ) : (
                   processingAgents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
+                    <SelectItem key={agent.id} value={agent.id} className="cursor-pointer">
                       <div className="flex items-center gap-2">
                         <Avatar className="h-6 w-6">
                           <AvatarFallback className="text-xs bg-primary/10 text-primary">
@@ -252,18 +268,18 @@ function AssignDialog({
         </div>
 
         <DialogFooter className="flex gap-2 sm:gap-2">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={isAssigning}>
+          <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose} disabled={isAssigning}>
             Annuler
           </Button>
           
           <Button
             onClick={handleAssign}
             disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
-            className="flex-1 bg-purple-600 hover:bg-purple-700"
+            className="flex-1 bg-purple-600 hover:bg-purple-700 cursor-pointer"
           >
             {isAssigning ? (
               <>
-                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 Assignation...
               </>
             ) : (
@@ -625,12 +641,12 @@ function EquipmentDetailSheet({
                         value={String(value)}
                         onValueChange={(v) => handleFieldChange(field, v === "true" || v === "oui" || v === "Oui")}
                       >
-                        <SelectTrigger className="h-9 text-sm">
+                        <SelectTrigger className="h-9 text-sm cursor-pointer">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="true">Oui / Actif</SelectItem>
-                          <SelectItem value="false">Non / Inactif</SelectItem>
+                          <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                          <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : inputType === "textarea" ? (
@@ -669,13 +685,13 @@ function EquipmentDetailSheet({
 
           {canEdit && (
             <SheetFooter className="px-5 py-4 border-t shrink-0 flex flex-row gap-3 sm:gap-2">
-              <Button variant="outline" className="flex-1" onClick={onClose}>
+              <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose}>
                 Annuler
               </Button>
-              <Button className="flex-1" onClick={handleSave} disabled={isSaving}>
+              <Button className="flex-1 cursor-pointer" onClick={handleSave} disabled={isSaving}>
                 {isSaving ? (
                   <>
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Enregistrement...
                   </>
                 ) : (
@@ -695,7 +711,7 @@ function EquipmentDetailSheet({
           <DialogContent className="max-w-[95vw] max-h-[95vh] w-[95vw] h-[95vh] p-0 bg-black/95 border-none">
             <button
               onClick={() => setIsFullscreen(false)}
-              className="absolute top-4 right-4 z-50 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              className="absolute top-4 right-4 z-50 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors cursor-pointer"
             >
               <X className="h-6 w-6" />
             </button>
@@ -915,7 +931,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
               <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button
                   onClick={(e) => handlePhotoClick(displayPhotoUrl, e)}
-                  className="p-1.5 rounded-lg bg-black/50 text-white hover:bg-black/70 transition-colors"
+                  className="p-1.5 rounded-lg bg-black/50 text-white hover:bg-black/70 transition-colors cursor-pointer"
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
                 </button>
@@ -984,7 +1000,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
           <div className="flex justify-end pt-2 mt-2 border-t border-border/40">
             <button 
               onClick={(e) => { e.stopPropagation(); onMarkTreated(anomaly.id); }}
-              className="flex mb-4 mr-4 items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              className="flex mb-4 mr-4 items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
             >
               <Check className="h-3.5 w-3.5" />Marquer traité
             </button>
@@ -997,7 +1013,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
           <DialogContent className="max-w-[95vw] max-h-[95vh] w-[95vw] h-[95vh] p-0 bg-black/95 border-none">
             <button
               onClick={() => setIsFullscreen(false)}
-              className="absolute top-4 right-4 z-50 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              className="absolute top-4 right-4 z-50 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors cursor-pointer"
             >
               <X className="h-6 w-6" />
             </button>
@@ -1049,7 +1065,7 @@ function TableGroup({ table, anomalies, filter, treatment, onFieldChange, onMark
   return (
     <div className="rounded-xl border border-border overflow-hidden">
       <button onClick={() => setOpen((p) => !p)}
-        className="flex w-full items-center gap-2.5 px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors text-left">
+        className="flex w-full items-center gap-2.5 px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors text-left cursor-pointer">
         {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <Icon className="h-4 w-4 shrink-0 text-primary" />
         <span className="font-medium text-sm flex-1">{TABLE_LABELS[table] || table}</span>
@@ -1199,6 +1215,8 @@ export default function FeederProcessingPage() {
   const setPendingMutation = useSetPending();
   const setCollectingMutation = useSetCollecting();
   const setPendingValidationMutation = useSetPendingValidation();
+  const validateMutation = useValidateTreatment();
+  const rejectMutation = useRejectTreatment();
   const updateAttributeMutation = useUpdateAttribute();
 
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
@@ -1214,6 +1232,7 @@ export default function FeederProcessingPage() {
   const assignedAgentId = treatmentStatus?.assigned_to;
   const assignedAgentName = treatmentStatus?.assigned_to_name;
   const treatmentStartTimeBackend = treatmentStatus?.started_at ? new Date(treatmentStatus.started_at).getTime() : null;
+  const durationSeconds = treatmentStatus?.duration_seconds;
   
   const isTreatmentActive = feederStatus === "in_progress";
   const isTreatmentAllowed = user?.id === assignedAgentId;
@@ -1453,8 +1472,51 @@ export default function FeederProcessingPage() {
     });
   };
 
+  const handleValidate = () => {
+    if (!user) {
+      toast.error("Utilisateur non connecté");
+      return;
+    }
+    
+    validateMutation.mutate({
+      feeder_id: feederId,
+      validated_by: user.id,
+      validated_by_name: `${user.firstName} ${user.lastName}`,
+      comment: "Validé après traitement",
+    }, {
+      onSuccess: () => {
+        toast.success("Départ validé avec succès");
+        refetchStatus();
+      },
+      onError: (error: Error) => {
+        toast.error(`Erreur: ${error.message}`);
+      }
+    });
+  };
+
+  const handleReject = () => {
+    if (!user) {
+      toast.error("Utilisateur non connecté");
+      return;
+    }
+    
+    rejectMutation.mutate({
+      feeder_id: feederId,
+      rejected_by: user.id,
+      rejected_by_name: `${user.firstName} ${user.lastName}`,
+      reason: "Rejeté après validation",
+    }, {
+      onSuccess: () => {
+        toast.success("Départ rejeté");
+        refetchStatus();
+      },
+      onError: (error: Error) => {
+        toast.error(`Erreur: ${error.message}`);
+      }
+    });
+  };
+
   // ─── CORRECTION : utilisation de TABLE_NAME_MAP pour convertir le nom
-  // frontend (ex: "powertransformer") vers le vrai nom SQL (ex: "power_transformers")
   const handleEquipmentSave = (equipment: EquipmentDetail, updatedData: Record<string, unknown>) => {
     if (!user) {
       toast.error("Utilisateur non connecté");
@@ -1471,13 +1533,12 @@ export default function FeederProcessingPage() {
       return;
     }
 
-    // Conversion du nom de table frontend → nom SQL réel
     const sqlTableName = TABLE_NAME_MAP[equipment.table] ?? equipment.table;
 
     Promise.all(changedFields.map(field =>
       updateAttributeMutation.mutateAsync({
         feeder_id: feederId,
-        table_name: sqlTableName,  // ← CORRECTION ICI
+        table_name: sqlTableName,
         record_id: String(equipment.mrid),
         attribute_name: field,
         new_value: updatedData[field],
@@ -1547,8 +1608,8 @@ export default function FeederProcessingPage() {
     // En cours de collecte
     if (feederStatus === "collecting") {
       return (
-        <Button onClick={handleCompleteCollection} className="gap-2 bg-blue-600 hover:bg-blue-700">
-          <Check className="h-4 w-4" />
+        <Button onClick={handleCompleteCollection} className="gap-2 bg-blue-600 hover:bg-blue-700 cursor-pointer" disabled={setPendingMutation.isPending}>
+          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
           Terminer la collecte
         </Button>
       );
@@ -1561,14 +1622,15 @@ export default function FeederProcessingPage() {
           <Button 
             onClick={handleBackToCollecting} 
             variant="outline" 
-            className="gap-2"
+            className="gap-2 cursor-pointer"
+            disabled={setCollectingMutation.isPending}
           >
-            <RefreshCw className="h-4 w-4" />
+            {setCollectingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
             Remettre en cours de collecte
           </Button>
           {!assignedAgentId ? (
-            <Button onClick={() => setIsAssignDialogOpen(true)} className="gap-2 bg-purple-600 hover:bg-purple-700">
-              <UserCheck className="h-4 w-4" />
+            <Button onClick={() => setIsAssignDialogOpen(true)} className="gap-2 bg-purple-600 hover:bg-purple-700 cursor-pointer">
+              <UserCheck className="h-4 w-4 mr-2" />
               Assigner à un agent
             </Button>
           ) : (
@@ -1580,9 +1642,9 @@ export default function FeederProcessingPage() {
                 <Button 
                   onClick={() => setIsReassignDialogOpen(true)} 
                   variant="outline" 
-                  className="gap-2"
+                  className="gap-2 cursor-pointer"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className="h-4 w-4 mr-2" />
                   Réassigner
                 </Button>
               )}
@@ -1596,8 +1658,8 @@ export default function FeederProcessingPage() {
     if (feederStatus === "assigned") {
       if (user?.id === assignedAgentId) {
         return (
-          <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-            <Play className="h-4 w-4" />
+          <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700 cursor-pointer" disabled={startMutation.isPending}>
+            {startMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
             Débuter le traitement
           </Button>
         );
@@ -1613,8 +1675,8 @@ export default function FeederProcessingPage() {
     if (feederStatus === "in_progress") {
       if (user?.id === assignedAgentId) {
         return (
-          <Button onClick={handleCompleteTreatment} variant="default" className="gap-2">
-            <Check className="h-4 w-4" />
+          <Button onClick={handleCompleteTreatment} variant="default" className="gap-2 cursor-pointer" disabled={setPendingValidationMutation.isPending}>
+            {setPendingValidationMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
             Terminer le traitement
           </Button>
         );
@@ -1626,29 +1688,39 @@ export default function FeederProcessingPage() {
     if (feederStatus === "pending_validation") {
       if (user?.role === 'Admin' || user?.role === 'Chef équipe' || user?.role === 'Agent validation') {
         return (
-          <div className="flex gap-2">
-            <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-              <RefreshCw className="h-4 w-4" />
-              Remettre en traitement
-            </Button>
-            <Button onClick={() => {
-              // TODO: appel API validate
-              toast.info("Fonction de validation à implémenter");
-            }} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-              <CheckCircle2 className="h-4 w-4" />
-              Valider
-            </Button>
-            <Button onClick={() => {
-              // TODO: appel API reject
-              toast.info("Fonction de rejet à implémenter");
-            }} variant="outline" className="gap-2 border-red-300 text-red-600 hover:bg-red-600 hover:text-white">
-              <X className="h-4 w-4" />
-              Rejeter
-            </Button>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/30 px-3 py-2 rounded-lg">
+              <Timer className="h-4 w-4" />
+              <span>Temps de traitement: <span className="font-mono font-medium text-foreground">{formatDuration(durationSeconds)}</span></span>
+            </div>
+            <div className="flex flex-col md:flex-row gap-2">
+              <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700 cursor-pointer" disabled={startMutation.isPending}>
+                {startMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                Remettre en traitement
+              </Button>
+<div className="flex items-center gap-2 "  >
+                <Button onClick={handleValidate} className="w-1/2 gap-2 bg-emerald-600 hover:bg-emerald-700 cursor-pointer" disabled={validateMutation.isPending}>
+                {validateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                Valider
+              </Button>
+              <Button onClick={handleReject} variant="outline" className="w-1/2 gap-2 border-red-300 text-red-600 hover:bg-red-600 hover:text-white cursor-pointer" disabled={rejectMutation.isPending}>
+                {rejectMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <X className="h-4 w-4 mr-2" />}
+                Rejeter
+              </Button>
+</div>
+            </div>
           </div>
         );
       }
-      return <Badge className="bg-yellow-100 text-yellow-700">En attente de validation</Badge>;
+      return (
+        <div className="flex items-center gap-3">
+          <Badge className="bg-yellow-100 text-yellow-700">En attente de validation</Badge>
+          <span className="text-sm text-muted-foreground flex items-center gap-1">
+            <Timer className="h-3 w-3" />
+            {formatDuration(durationSeconds)}
+          </span>
+        </div>
+      );
     }
     
     return null;
@@ -1671,7 +1743,7 @@ export default function FeederProcessingPage() {
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
           <p className="text-muted-foreground">Erreur lors du chargement des données</p>
-          <Button onClick={refresh} variant="outline" className="mt-4">
+          <Button onClick={refresh} variant="outline" className="mt-4 cursor-pointer">
             <RefreshCw className="h-4 w-4 mr-2" />
             Réessayer
           </Button>
@@ -1701,6 +1773,12 @@ export default function FeederProcessingPage() {
               <h1 className="text-lg font-bold truncate sm:text-xl">{feederName}</h1>
             </div>
             {getStatusBadge()}
+            {durationSeconds && feederStatus === "pending_validation" && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
+                <Timer className="h-3 w-3" />
+                <span>Temps: {formatDuration(durationSeconds)}</span>
+              </div>
+            )}
             {assignedAgentName && feederStatus !== "collecting" && feederStatus !== "pending" && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
                 <User className="h-3 w-3" />
@@ -1734,7 +1812,7 @@ export default function FeederProcessingPage() {
           
           return (
             <button key={cfg.type} onClick={() => setActiveFilter(isActive ? "all" : cfg.type)} disabled={count === 0}
-              className={cn("flex flex-col gap-2 p-3 rounded-xl border text-left transition-all duration-200 active:scale-95",
+              className={cn("flex flex-col gap-2 p-3 rounded-xl border text-left transition-all duration-200 active:scale-95 cursor-pointer",
                 isActive ? cn(cfg.activeBg, cfg.activeBorder) : "bg-card border-border hover:border-border",
                 count === 0 && "opacity-40 cursor-default pointer-events-none")}>
               <div className="flex items-center justify-between">
@@ -1762,7 +1840,7 @@ export default function FeederProcessingPage() {
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Info className="h-3.5 w-3.5" />
           <span>Filtré sur <strong className="text-foreground">{KPI_CONFIG.find((k) => k.type === activeFilter)?.label}</strong></span>
-          <button onClick={() => setActiveFilter("all")} className="text-primary hover:underline">Tout voir</button>
+          <button onClick={() => setActiveFilter("all")} className="text-primary hover:underline cursor-pointer">Tout voir</button>
         </div>
       )}
 
