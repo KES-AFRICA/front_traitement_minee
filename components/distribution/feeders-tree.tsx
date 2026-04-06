@@ -3,34 +3,60 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Zap, MapPin } from "lucide-react";
+import { ChevronRight, Zap, MapPin, User } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { useFeedersSource } from "@/hooks/useComparison";
-import { FeederTreeGroup, FeederTreeSubstation, FeederTreeFeeder } from "@/lib/types/comparison";
+import { useFeedersWithSource } from "@/hooks/use-treatment-service";
+import { useAuth } from "@/lib/auth/context";
 
 interface FeedersTreeProps {
   mode: "processing" | "validation";
   selectedFeederId?: string | number;
 }
 
+interface FeederTreeGroup {
+  decoupage: string;
+  substations: FeederTreeSubstation[];
+}
+
+interface FeederTreeSubstation {
+  id: string;
+  name: string;
+  feeders: FeederTreeFeeder[];
+}
+
+interface FeederTreeFeeder {
+  feeder_id: string;
+  feeder_name: string;
+  assigned_agent_id?: string | null;
+  assigned_agent_name?: string | null;
+  treatment_status?: string | null;
+}
+
 export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
   const router = useRouter();
-  const { feeders, loading, error } = useFeedersSource();
+  const { user } = useAuth();
+  
+  // Pour Admin ou Chef équipe → tous les feeders
+  // Pour Agent traitement ou Agent validation → uniquement ceux assignés
+  const shouldFilterByAgent = user?.role !== 'Admin' && user?.role !== 'Chef équipe';
+  const { data, isLoading, error } = useFeedersWithSource(shouldFilterByAgent);
+  
   const [groupedData, setGroupedData] = useState<FeederTreeGroup[]>([]);
   const [openDecoupages, setOpenDecoupages] = useState<Record<string, boolean>>({});
   const [openSubstations, setOpenSubstations] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    const feeders = data?.feeders || [];
     if (feeders.length === 0) return;
 
     // Grouper par découpage puis par poste source
     const groups: Record<string, Record<string, FeederTreeSubstation>> = {};
 
     for (const feeder of feeders) {
-      const decoupage = feeder.substation_source.decoupage || "Non défini";
-      const substationId = feeder.substation_source.id || "unknown";
-      const substationName = feeder.substation_source.name || "Poste inconnu";
+      const decoupage = feeder.substation_source?.decoupage || "Non défini";
+      const substationId = feeder.substation_source?.id || "unknown";
+      const substationName = feeder.substation_source?.name || "Poste inconnu";
 
       if (!groups[decoupage]) {
         groups[decoupage] = {};
@@ -44,7 +70,10 @@ export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
       }
       groups[decoupage][substationId].feeders.push({
         feeder_id: feeder.feeder_id,
-        feeder_name: feeder.feeder_name
+        feeder_name: feeder.feeder_name,
+        assigned_agent_id: feeder.assigned_agent_id,
+        assigned_agent_name: feeder.assigned_agent_name,
+        treatment_status: feeder.treatment_status
       });
     }
 
@@ -69,7 +98,7 @@ export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
         }
       }
     }
-  }, [feeders, selectedFeederId]);
+  }, [data, selectedFeederId]);
 
   const handleFeederClick = (feederId: string, feederName: string) => {
     router.push(`/distribution/${mode}/feeder/${feederId}?name=${encodeURIComponent(feederName)}`);
@@ -83,16 +112,23 @@ export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
     setOpenSubstations(prev => ({ ...prev, [substationId]: !prev[substationId] }));
   };
 
-  if (loading) {
+  if (isLoading) {
     return <div className="text-sm text-muted-foreground p-2">Chargement...</div>;
   }
 
   if (error) {
-    return <div className="text-sm text-red-500 p-2">Erreur: {error}</div>;
+    return <div className="text-sm text-red-500 p-2">Erreur: {error.message}</div>;
   }
 
   if (groupedData.length === 0) {
-    return <div className="text-sm text-muted-foreground p-2">Aucun feeder trouvé</div>;
+    return (
+      <div className="text-sm text-muted-foreground p-2 text-center">
+        <p>Aucun feeder trouvé</p>
+        {shouldFilterByAgent && (
+          <p className="text-xs mt-1">Vous n'êtes assigné à aucun feeder</p>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -173,8 +209,20 @@ export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
                             String(selectedFeederId) === String(feeder.feeder_id) && "bg-blue-500/20 text-blue-600 font-medium"
                           )}
                         >
-                          <Zap className="h-3 w-3 text-blue-500" />
-                          <span className="truncate">{feeder.feeder_name}</span>
+                          <Zap className="h-3 w-3 text-blue-500 shrink-0" />
+                          <span className="truncate flex-1 text-left">{feeder.feeder_name}</span>
+                          {feeder.assigned_agent_name && feeder.assigned_agent_id === user?.id && (
+                            <span className="text-[10px] text-green-600 flex items-center gap-0.5">
+                              <User className="h-2.5 w-2.5" />
+                              Moi
+                            </span>
+                          )}
+                          {feeder.assigned_agent_name && feeder.assigned_agent_id !== user?.id && user?.role !== 'Admin' && user?.role !== 'Chef équipe' ? null : feeder.assigned_agent_name && user?.role === 'Admin' && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <User className="h-2.5 w-2.5" />
+                              {feeder.assigned_agent_name.split(' ')[0]}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>

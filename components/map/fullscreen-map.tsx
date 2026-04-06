@@ -21,10 +21,24 @@ export interface EquipmentRecord {
   [key: string]: unknown;
 }
 
+interface WireMapItem {
+  id?: number;
+  coordinates: [number, number][];
+  feeder_name?: string | null;
+  tension_kv?: string | null;
+  type?: string; // "aerien", "souterrain", "mixte"
+  debut_type?: string;
+  fin_type?: string;
+  [key: string]: unknown;
+}
+
 interface FullscreenMapProps {
   equipments?: Record<string, unknown>[];
+  wires?: WireMapItem[];
   onMarkerClick?: (equipment: Record<string, unknown>) => void;
+  onWireClick?: (wire: WireMapItem) => void;
   feederColor?: string;
+  wireColor?: string;
 }
 
 type LayerType = "street" | "satellite";
@@ -37,14 +51,14 @@ const TABLE_COLORS: Record<string, string> = {
   busbar:           "#f59e0b",
   bay:              "#10b981",
   switch:           "#ef4444",
-  wire:             "#6b7280",
+  wire:             "#a855f7",
   pole:             "#78716c",
   node:             "#9ca3af",
 };
 
 // ─── Extraire lat/lng — retourne null si absent ou invalide ──────────────────
 function getCoords(eq: EquipmentRecord): [number, number] | null {
-  const rawLat = eq.latitude ?? eq.lattitude; // "lattitude" = typo dans Pole
+  const rawLat = eq.latitude ?? eq.lattitude;
   const rawLng = eq.longitude;
   const lat = parseFloat(String(rawLat ?? ""));
   const lng = parseFloat(String(rawLng ?? ""));
@@ -57,24 +71,19 @@ function makeSVGIcon(eq: EquipmentRecord, L: any): any {
   const color = TABLE_COLORS[eq.table || ""] || "#6366f1";
   const table = eq.table || "";
 
-  // Label central selon le type
   const typeRaw = (eq.type as string) ?? "";
   let label = "";
   if (typeRaw === "H61") label = "H61";
   else if (typeRaw === "H59") label = "H59";
   else if (typeRaw) label = "S";
 
-  // Forme selon le type (substation uniquement), sinon comportement original
   let shape = "";
   if (table === "substation") {
     if (typeRaw === "H61") {
-      // Rond
       shape = `<circle cx="14" cy="14" r="11" fill="${color}" stroke="white" stroke-width="2.5"/>`;
     } else if (typeRaw === "H59") {
-      // Carré
       shape = `<rect x="3" y="3" width="22" height="22" rx="3" fill="${color}" stroke="white" stroke-width="2.5"/>`;
     } else {
-      // Rectangle (S ou autre)
       shape = `<rect x="2" y="6" width="24" height="16" rx="3" fill="${color}" stroke="white" stroke-width="2.5"/>`;
     }
   } else if (table === "feeder") {
@@ -91,7 +100,6 @@ function makeSVGIcon(eq: EquipmentRecord, L: any): any {
     shape = `<circle cx="14" cy="14" r="10" fill="${color}" stroke="white" stroke-width="2.5"/>`;
   }
 
-  // Label centré (remplace le petit point blanc)
   const labelEl = label
     ? `<text x="14" y="18" text-anchor="middle" font-size="9" font-weight="700" fill="white" font-family="sans-serif">${label}</text>`
     : `<circle cx="14" cy="14" r="3" fill="white" opacity="0.9"/>`;
@@ -138,128 +146,33 @@ function makePopupHtml(eq: EquipmentRecord): string {
     </div>`;
 }
 
-// ─── Construction des liaisons ────────────────────────────────────────────────
-/**
- * RÈGLE SIMPLE : on relie un équipement à son parent SI ET SEULEMENT SI
- * les deux ont des coordonnées GPS dans les données.
- *
- * Hiérarchie :
- *   substation       → feeder          (substation.feeder_id)
- *   powertransformer → substation       (powertransformer.substation_id)
- *   busbar           → substation       (busbar.substation_id)
- *   bay              → substation       (bay.substation_id)
- *   switch           → bay              (switch.bay_mrid)
- *   wire             → feeder           (wire.feeder_id)
- *   pole             → feeder           (pole.feeder_id)
- *   node             → pole             (node.pole_id)
- *
- * Si le parent n'a pas de coords → on cherche le grand-parent, etc.
- * Si aucun ancêtre n'a de coords → pas de ligne tracée.
- *
- * Cas particulier : si aucun feeder n'a de coords mais plusieurs substations
- * du même feeder ont des coords → on les relie entre elles par ordre géographique
- * (nearest-neighbor) pour représenter visuellement le réseau linéaire HTA.
- */
-function buildSegments(
-  equipments: EquipmentRecord[]
-): [number, number][][] {
-  // 1. Construire l'index coords : m_rid → [lat, lng]
-  const coords = new Map<string, [number, number]>();
-  for (const eq of equipments) {
-    const c = getCoords(eq);
-    if (c) coords.set(String(eq.m_rid), c);
-  }
-
-  const segments: [number, number][][] = [];
-
-  // Helper : tenter de relier parentId → childId si les deux ont des coords
-  const link = (parentId: unknown, childId: unknown) => {
-    if (parentId == null || childId == null) return;
-    const a = coords.get(String(parentId));
-    const b = coords.get(String(childId));
-    if (a && b) segments.push([a, b]);
-  };
-
-  // 2. Tracer les liaisons directes pour chaque équipement qui a des coords
-  for (const eq of equipments) {
-    if (!getCoords(eq)) continue; // pas de coords → rien à tracer
-
-    switch (eq.table) {
-      case "substation":       link(eq.feeder_id,     eq.m_rid); break;
-      case "powertransformer": link(eq.substation_id, eq.m_rid); break;
-      case "busbar":           link(eq.substation_id, eq.m_rid); break;
-      case "bay":              link(eq.substation_id, eq.m_rid); break;
-      case "switch":           link(eq.bay_mrid,      eq.m_rid); break;
-      case "wire":             link(eq.feeder_id,     eq.m_rid); break;
-      case "pole":             link(eq.feeder_id,     eq.m_rid); break;
-      case "node":             link(eq.pole_id,       eq.m_rid); break;
-    }
-  }
-
-  // 3. Cas spécial : feeder sans coords mais plusieurs substations avec coords
-  //    → on les relie entre elles par nearest-neighbor (réseau HTA linéaire)
-  const feederIds = new Set<string>();
-  for (const eq of equipments) {
-    if (eq.table === "substation" && eq.feeder_id != null) {
-      feederIds.add(String(eq.feeder_id));
-    }
-  }
-
-  for (const feederId of feederIds) {
-    // Si le feeder a des coords, les liaisons directes ont déjà été tracées
-    if (coords.has(feederId)) continue;
-
-    // Substations de ce feeder qui ont des coords
-    const subs = equipments.filter(
-      (eq) =>
-        eq.table === "substation" &&
-        String(eq.feeder_id) === feederId &&
-        getCoords(eq) !== null
-    );
-
-    if (subs.length < 2) continue;
-
-    // Trier par longitude pour suivre l'axe principal du réseau
-    const sorted = [...subs].sort((a, b) => {
-      const [, lngA] = getCoords(a)!;
-      const [, lngB] = getCoords(b)!;
-      return lngA - lngB;
-    });
-
-    // Nearest-neighbor depuis le premier point
-    const remaining = [...sorted];
-    let current = remaining.shift()!;
-
-    while (remaining.length > 0) {
-      const currentC = getCoords(current)!;
-
-      // Trouver le plus proche parmi les restants
-      let nearestIdx = 0;
-      let nearestDist = Infinity;
-      for (let i = 0; i < remaining.length; i++) {
-        const c = getCoords(remaining[i])!;
-        const dist = Math.hypot(currentC[0] - c[0], currentC[1] - c[1]);
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearestIdx = i;
-        }
-      }
-
-      const next = remaining.splice(nearestIdx, 1)[0];
-      const nextC = getCoords(next)!;
-      segments.push([currentC, nextC]);
-      current = next;
-    }
-  }
-
-  return segments;
+// ─── Popup pour les wires ─────────────────────────────────────────────────────
+function makeWirePopupHtml(wire: WireMapItem): string {
+  return `
+    <div style="font-family:sans-serif;min-width:180px;max-width:280px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px;padding-bottom:4px;border-bottom:2px solid #a855f7;color:#a855f7">
+        ${wire.feeder_name || "Ligne"}
+      </div>
+      <div style="font-size:10px;background:#f5f5f5;padding:2px 8px;border-radius:4px;display:inline-block;margin-bottom:6px;color:#555">
+        ID: ${wire.id || "N/A"}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:11px;">
+        <div><strong>Tension:</strong> ${wire.tension_kv || "N/A"} kV</div>
+        <div><strong>Type:</strong> ${wire.type || "N/A"}</div>
+        <div><strong>Début:</strong> ${wire.debut_type || "N/A"}</div>
+        <div><strong>Fin:</strong> ${wire.fin_type || "N/A"}</div>
+      </div>
+    </div>`;
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function FullscreenMap({
   equipments = [],
+  wires = [],
   onMarkerClick,
+  onWireClick,
   feederColor = "#6366f1",
+  wireColor = "#a855f7",
 }: FullscreenMapProps) {
   const mapRef       = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -355,7 +268,6 @@ export default function FullscreenMap({
     let rafId: number;
 
     const render = () => {
-      // Attendre que la carte soit initialisée
       if (!mapInst.current || !layerGroup.current) {
         rafId = requestAnimationFrame(render);
         return;
@@ -364,31 +276,44 @@ export default function FullscreenMap({
       import("leaflet").then((L) => {
         if (!mapInst.current || !layerGroup.current) return;
 
-        // Vider le groupe
         layerGroup.current.clearLayers();
 
-        const eqs = (Array.isArray(equipments) ? equipments : []) as EquipmentRecord[];
-        if (eqs.length === 0) {
-          mapInst.current.setView([4.06, 9.72], 10);
-          return;
+        // ── 1. DESSINER LES WIRES SEULEMENT (plus de liaisons équipements) ──
+        if (wires && wires.length > 0) {
+          for (const wire of wires) {
+            if (wire.coordinates && wire.coordinates.length > 1) {
+              const isUnderground = wire.type === "souterrain";
+              
+              const lineOptions: any = {
+                color: wireColor,
+                weight: 5,  // ← ÉPAISSEUR AUGMENTÉE (était 3)
+                opacity: 0.9,
+                smoothFactor: 1,
+              };
+              
+              if (isUnderground) {
+                lineOptions.dashArray = "10, 8";
+                lineOptions.opacity = 0.7;
+              }
+              
+              const polyline = L.polyline(wire.coordinates, lineOptions);
+              polyline.bindPopup(makeWirePopupHtml(wire), { maxWidth: 300 });
+              polyline.on("click", (e: any) => {
+                e.originalEvent?.stopPropagation?.();
+                onWireClick?.(wire);
+              });
+              polyline.addTo(layerGroup.current);
+            }
+          }
         }
 
-        // ── 1. Polylines EN PREMIER (sous les markers) ────────────────────
-        //const segments = buildSegments(eqs);
-        // for (const seg of segments) {
-        //   L.polyline(seg, {
-        //     color:   feederColor,
-        //     weight:  2.5,
-        //     opacity: 0.8,
-        //   }).addTo(layerGroup.current);
-        // }
-
-        // ── 2. Markers PAR DESSUS ─────────────────────────────────────────
+        // ── 2. MARKERS DES POSTES ──────────────────────────────────────────
+        const eqs = (Array.isArray(equipments) ? equipments : []) as EquipmentRecord[];
         const allCoords: [number, number][] = [];
 
         for (const eq of eqs) {
           const c = getCoords(eq);
-          if (!c) continue; // pas de coords → pas de marker
+          if (!c) continue;
           allCoords.push(c);
 
           const marker = L.marker(c, { icon: makeSVGIcon(eq, L) });
@@ -397,7 +322,18 @@ export default function FullscreenMap({
           marker.addTo(layerGroup.current);
         }
 
-        // ── 3. Centrer la vue ─────────────────────────────────────────────
+        // ── 3. AJOUTER LES COORDONNÉES DES WIRES POUR LE CENTRAGE ───────────
+        for (const wire of wires) {
+          if (wire.coordinates) {
+            for (const coord of wire.coordinates) {
+              if (coord && coord.length >= 2) {
+                allCoords.push([coord[1], coord[0]]);
+              }
+            }
+          }
+        }
+
+        // ── 4. CENTRER LA VUE ───────────────────────────────────────────────
         if (allCoords.length === 0) {
           mapInst.current.setView([4.06, 9.72], 10);
         } else if (allCoords.length === 1) {
@@ -413,7 +349,7 @@ export default function FullscreenMap({
 
     rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
-  }, [equipments, onMarkerClick, feederColor]);
+  }, [equipments, wires, onMarkerClick, onWireClick, feederColor, wireColor]);
 
   // ─── Rendu JSX ──────────────────────────────────────────────────────────────
   return (
@@ -449,7 +385,7 @@ export default function FullscreenMap({
           {isLayerOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </button>
         {isLayerOpen && (
-          <div className="absolute bottom-full right-0 mb-1 bg-white  rounded-lg shadow-lg overflow-hidden min-w-32.5">
+          <div className="absolute bottom-full right-0 mb-1 bg-white rounded-lg shadow-lg overflow-hidden min-w-32.5">
             {(["street", "satellite"] as LayerType[]).map((l) => (
               <button
                 key={l}
@@ -466,9 +402,9 @@ export default function FullscreenMap({
         )}
       </div>
 
-      {/* Légende */}
+      {/* Légende simplifiée */}
       <div className="absolute bottom-3 left-3 z-10">
-        <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-md overflow-hidden" style={{ minWidth: 190 }}>
+        <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-md overflow-hidden" style={{ minWidth: 150 }}>
           <button
             onClick={() => setIsLegendOpen((p) => !p)}
             className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 transition-colors text-xs font-semibold text-gray-700"
@@ -482,32 +418,26 @@ export default function FullscreenMap({
           {isLegendOpen && (
             <div className="px-3 pb-3 space-y-1.5 text-[11px] border-t border-gray-100">
               {[
-                { table: "feeder",           label: "Feeder (Départ)",    dot: "circle"   },
-                { table: "substation",        label: "Substation",         dot: "circle"   },
-                { table: "powertransformer",  label: "Transformateur",     dot: "square"   },
-                { table: "busbar",            label: "Bus Bar",            dot: "diamond"  },
-                { table: "bay",               label: "Bay (Travée)",       dot: "circle"   },
-                { table: "switch",            label: "Switch",             dot: "octagon"  },
-                { table: "wire",              label: "Wire (Câble)",       dot: "circle"   },
-                { table: "pole",              label: "Pole (Poteau)",      dot: "triangle" },
-                { table: "node",              label: "Node (Nœud)",        dot: "circle"   },
+                { table: "substation", label: "Poste", dot: "circle" },
+                { table: "feeder", label: "Feeder", dot: "circle" },
               ].map(({ table, label, dot }) => {
                 const color = TABLE_COLORS[table] || "#6366f1";
                 return (
                   <div key={table} className="flex items-center gap-2 py-0.5">
-                    {dot === "square"   && <div className="w-3 h-3 rounded-sm shrink-0"       style={{ background: color }} />}
-                    {dot === "diamond"  && <div className="w-3 h-3 rotate-45 shrink-0"        style={{ background: color }} />}
-                    {dot === "triangle" && <div className="w-0 h-0 shrink-0" style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderBottom: `10px solid ${color}` }} />}
-                    {dot === "octagon"  && <div className="w-3 h-3 rounded-sm shrink-0"       style={{ background: color, clipPath: "polygon(25% 0%,75% 0%,100% 25%,100% 75%,75% 100%,25% 100%,0% 75%,0% 25%)" }} />}
-                    {dot === "circle"   && <div className="w-3 h-3 rounded-full shrink-0"     style={{ background: color }} />}
+                    {dot === "circle" && <div className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />}
                     <span className="text-gray-700">{label}</span>
                   </div>
                 );
               })}
-              {/* Ligne du réseau */}
+              {/* Ligne aérienne */}
               <div className="flex items-center gap-2 pt-1.5 mt-1 border-t border-gray-100">
-                <div className="w-6 h-0.5 rounded shrink-0" style={{ background: feederColor }} />
-                <span className="text-gray-700">Réseau du départ</span>
+                <div className="w-8 h-1 rounded shrink-0" style={{ background: wireColor }} />
+                <span className="text-gray-700">Ligne aérienne</span>
+              </div>
+              {/* Ligne souterraine */}
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-1 rounded shrink-0" style={{ background: wireColor, backgroundImage: `repeating-linear-gradient(90deg, ${wireColor}, ${wireColor} 6px, transparent 6px, transparent 12px)` }} />
+                <span className="text-gray-700">Ligne souterraine</span>
               </div>
             </div>
           )}

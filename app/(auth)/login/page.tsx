@@ -115,11 +115,7 @@ export default function LoginPage() {
       {/* Right Panel - Scrollable */}
       <div className="flex-1 flex items-start justify-center p-4 bg-background overflow-y-auto h-full">
         <div className="w-full max-w-md my-auto py-2">
-          {/* Header Controls 
-          <div className="flex justify-end gap-2 mb-8">
-            <LanguageSwitch />
-            <ThemeToggle />
-          </div>*/}
+
 
           {/* Mobile Logo */}
 <div className="flex items-center justify-center w-full mx-auto mb-2 sm:mb-4 md:mb-6">

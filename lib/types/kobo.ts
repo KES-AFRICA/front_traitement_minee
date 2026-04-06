@@ -248,3 +248,158 @@ export interface PosteDetail {
 export interface ApiError {
   detail: string;
 }
+
+// ── Wire (Ligne) pour la carte ────────────────────────────────────────────────
+
+export interface WirePoint {
+  type: string;      // "poste", "derivation", "OCR"
+  code: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface WireMapItem {
+  id: number;
+  feeder_id: string | null;
+  feeder_name: string | null;
+  type: string | null;  // "aerien", "souterrain", "mixte"
+  tension_kv: string | null;
+  phase: string | null;
+  debut: WirePoint;
+  fin: WirePoint;
+  waypoints_count: number;
+  coordinates: [number, number][];  // [[lng, lat], ...] pour Leaflet
+  submission_time: string | null;
+  submitted_by: string | null;
+}
+
+export interface WiresMapResponse {
+  count: number;
+  wires: WireMapItem[];
+}
+
+// ── Détail complet d'un wire ──────────────────────────────────────────────────
+
+export interface WireSupport {
+  index: number;
+  hauteur?: string | null;
+  etat?: string | null;
+  type_support?: string | null;
+  barcode?: string | null;
+  sens?: string | null;
+  hauteur_m?: string | null;
+  photo?: string | null;
+  photo_accessoires?: string | null;
+  pba?: {
+    forme?: string | null;
+    structure?: string | null;
+    effort?: string | null;
+  };
+  metallique?: {
+    forme?: string | null;
+    structure?: string | null;
+    effort?: string | null;
+  };
+  armement?: {
+    type?: string | null;
+    nombre?: string | null;
+    etat?: string | null;
+    photo?: string | null;
+  };
+}
+
+export interface WireTroncon {
+  index: number;
+  type: string; // "aerien", "souterrain", "remontee"
+  aerien?: {
+    caracteristique?: string | null;
+    cable?: {
+      nature?: string | null;
+      section?: string | null;
+      isolant?: string | null;
+    };
+  };
+  souterrain?: {
+    cable?: {
+      nature?: string | null;
+      section?: string | null;
+      isolant?: string | null;
+      pose?: string | null;
+    };
+    points_remarquables?: any[];
+  };
+  remontee?: {
+    support?: WireSupport;
+    armement?: {
+      type?: string | null;
+      nombre?: string | null;
+      etat?: string | null;
+      photo?: string | null;
+    };
+    cable?: {
+      nature?: string | null;
+      section?: string | null;
+      isolant?: string | null;
+      pose?: string | null;
+    };
+  };
+  supports?: WireSupport[];
+}
+
+export interface WireDetail {
+  id: number;
+  uuid: string | null;
+  
+  feeder: {
+    id: string | null;
+    name: string | null;
+    tension_kv: string | null;
+    phase: string | null;
+  };
+  
+  debut: {
+    type: string | null;
+    code: string | null;
+    coordinates: {
+      latitude: number | null;
+      longitude: number | null;
+    };
+    details: Record<string, any>;
+    photo: string | null;
+  };
+  
+  fin: {
+    type: string | null;
+    details: Record<string, any>;
+    coordinates: {
+      latitude: number | null;
+      longitude: number | null;
+    };
+  };
+  
+  troncons: WireTroncon[];
+  
+  stats: {
+    troncons_count: number;
+    supports_count: number;
+    total_waypoints: number;
+  };
+  
+  geometry: {
+    coordinates: number[][];
+    waypoints: Array<{
+      lat: number;
+      lng: number;
+      type: string;
+      troncon_index: number;
+      [key: string]: any;
+    }>;
+  };
+  
+  meta: {
+    kobo_id: number;
+    submission_time: string | null;
+    submitted_by: string | null;
+    version: string | null;
+  };
+}

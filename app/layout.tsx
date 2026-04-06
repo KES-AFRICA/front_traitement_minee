@@ -1,8 +1,10 @@
+
 import type { Metadata, Viewport } from 'next'
 import { Inter, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { Providers } from '@/components/providers'
 import { NotificationProvider } from "@/lib/context/notification-context";
+
 import 'leaflet/dist/leaflet.css';
 import './globals.css'
 
@@ -59,9 +61,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  
   return (
     <html lang="fr" suppressHydrationWarning>
       <body className={`${inter.variable} ${geistMono.variable} font-sans antialiased`}>
+        
         <Providers>
           <NotificationProvider>
             {children}

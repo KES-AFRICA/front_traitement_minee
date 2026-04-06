@@ -1,6 +1,6 @@
 // ─── services/koboService.ts ──────────────────────────────────────────────────
 
-import { ApiError, PosteDetail, PostesMapResponse } from "@/lib/types/kobo";
+import { ApiError, PosteDetail, PostesMapResponse, WireDetail, WiresMapResponse } from "@/lib/types/kobo";
 
 
 
@@ -48,6 +48,29 @@ export async function fetchPosteDetail(substationId: string): Promise<PosteDetai
     throw new Error("substationId ne peut pas être vide.");
   }
   return apiFetch<PosteDetail>(`/poste/${encodeURIComponent(substationId)}`);
+}
+
+// ── Nouveaux endpoints pour les wires ─────────────────────────────────────────
+
+/**
+ * GET /map/wires
+ * Retourne toutes les lignes (wires) géolocalisées pour la carte.
+ */
+export async function fetchWiresMap(): Promise<WiresMapResponse> {
+  return apiFetch<WiresMapResponse>("/map/wires");
+}
+
+/**
+ * GET /wire/{wireId}
+ * Retourne le détail complet d'un wire par son ID Kobo.
+ *
+ * @param wireId  ID Kobo du wire (ex: 217)
+ */
+export async function fetchWireDetail(wireId: number): Promise<WireDetail> {
+  if (!wireId) {
+    throw new Error("wireId ne peut pas être vide.");
+  }
+  return apiFetch<WireDetail>(`/wire/${encodeURIComponent(wireId)}`);
 }
 
 // ── Utilitaire : construire l'URL complète d'une photo ─────────────────────────
