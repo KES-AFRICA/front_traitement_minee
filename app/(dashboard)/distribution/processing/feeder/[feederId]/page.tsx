@@ -99,6 +99,19 @@ const KPI_CONFIG = [
   { type: "complex" as const, label: "Complexes", icon: AlertCircle, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", activeBg: "bg-red-500/15", activeBorder: "border-red-500/50" },
 ] as const;
 
+// ─── Mapping noms frontend → noms tables PostgreSQL ───────────────────
+// CORRECTION : les clés frontend (ex: "powertransformer") ne correspondent
+// pas aux vrais noms de tables SQL (ex: "power_transformers").
+const TABLE_NAME_MAP: Record<string, string> = {
+  powertransformer: "power_transformers",
+  substation:       "substations",
+  bus_bar:          "busbar",
+  bay:              "bay",
+  switch:           "switch",
+  wire:             "wire",
+  feeder:           "feeders",
+};
+
 // ─── Icônes / labels par table ────────────────────────────────────────
 const TABLE_ICONS: Record<string, React.ElementType> = {
   substation: Building2, powertransformer: Zap, bus_bar: Layers,
@@ -926,11 +939,11 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
                   <div key={idx} className="grid grid-cols-2 gap-2 text-xs">
                     <div className="p-1.5 rounded bg-red-50 dark:bg-red-950/20">
                       <span className="text-red-600 dark:text-red-400 text-[10px] font-medium">{fl(df.field)} - RÉFÉRENCE</span>
-                      <p className="font-mono text-xs break-words">{fv(df.reference_value)}</p>
+                      <p className="font-mono text-xs wrap-break-word">{fv(df.reference_value)}</p>
                     </div>
                     <div className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/20">
                       <span className="text-amber-600 dark:text-amber-400 text-[10px] font-medium">{fl(df.field)} - COLLECTÉ</span>
-                      <p className="font-mono text-xs break-words">{fv(df.collected_value)}</p>
+                      <p className="font-mono text-xs wrap-break-word">{fv(df.collected_value)}</p>
                     </div>
                   </div>
                 ))}
@@ -1440,6 +1453,8 @@ export default function FeederProcessingPage() {
     });
   };
 
+  // ─── CORRECTION : utilisation de TABLE_NAME_MAP pour convertir le nom
+  // frontend (ex: "powertransformer") vers le vrai nom SQL (ex: "power_transformers")
   const handleEquipmentSave = (equipment: EquipmentDetail, updatedData: Record<string, unknown>) => {
     if (!user) {
       toast.error("Utilisateur non connecté");
@@ -1456,10 +1471,13 @@ export default function FeederProcessingPage() {
       return;
     }
 
+    // Conversion du nom de table frontend → nom SQL réel
+    const sqlTableName = TABLE_NAME_MAP[equipment.table] ?? equipment.table;
+
     Promise.all(changedFields.map(field =>
       updateAttributeMutation.mutateAsync({
         feeder_id: feederId,
-        table_name: equipment.table,
+        table_name: sqlTableName,  // ← CORRECTION ICI
         record_id: String(equipment.mrid),
         attribute_name: field,
         new_value: updatedData[field],
@@ -1590,7 +1608,7 @@ export default function FeederProcessingPage() {
         </Badge>
       );
     }
-    
+
     // En cours de traitement
     if (feederStatus === "in_progress") {
       if (user?.id === assignedAgentId) {
@@ -1609,6 +1627,10 @@ export default function FeederProcessingPage() {
       if (user?.role === 'Admin' || user?.role === 'Chef équipe' || user?.role === 'Agent validation') {
         return (
           <div className="flex gap-2">
+            <Button onClick={handleStartTreatment} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+              <RefreshCw className="h-4 w-4" />
+              Remettre en traitement
+            </Button>
             <Button onClick={() => {
               // TODO: appel API validate
               toast.info("Fonction de validation à implémenter");
