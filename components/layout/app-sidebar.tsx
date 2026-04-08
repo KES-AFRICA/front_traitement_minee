@@ -62,6 +62,7 @@ import {
   AlertCircle,
   Wrench,
   ShieldCheck,
+  Database,
 } from "lucide-react";
 import { FeedersTree } from "../distribution/feeders-tree";
 import { cn } from "@/lib/utils";
@@ -149,6 +150,17 @@ export function AppSidebar() {
                     <Link href="/dashboard">
                       <LayoutDashboard className="w-4 h-4" />
                       <span>{t("nav.dashboard")}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+
+              {canViewDashboard && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/collecte"} tooltip="Collecte terrain">
+                    <Link href="/collecte">
+                      <Database className="w-4 h-4" />
+                      <span>Collecte terrain</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
