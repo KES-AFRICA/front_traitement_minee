@@ -23,6 +23,7 @@ import { UserRole } from "@/lib/api/types";
 export const PERMISSIONS = {
   // Navigation / vues
   VIEW_DASHBOARD:       "view:dashboard",
+  VIEW_COLLECTE:        "view:collecte",
   VIEW_DISTRIBUTION:    "view:distribution",
   VIEW_PROCESSING:      "view:processing",
   VIEW_VALIDATION:      "view:validation",
@@ -54,6 +55,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
 
   "Admin": [
     PERMISSIONS.VIEW_DASHBOARD,
+    PERMISSIONS.VIEW_COLLECTE,
     PERMISSIONS.VIEW_DISTRIBUTION,
     PERMISSIONS.VIEW_PROCESSING,
     PERMISSIONS.VIEW_VALIDATION,
@@ -124,6 +126,7 @@ export function getPermissionsForRole(role: UserRole): Permission[] {
 
 const ROUTE_PERMISSION_MAP: Record<string, Permission> = {
   "/dashboard":                     PERMISSIONS.VIEW_DASHBOARD,
+  "/collecte":                       PERMISSIONS.VIEW_COLLECTE,
   "/distribution":                  PERMISSIONS.VIEW_DISTRIBUTION,
   "/distribution/processing":       PERMISSIONS.VIEW_PROCESSING,
   "/distribution/validation":       PERMISSIONS.VIEW_VALIDATION,

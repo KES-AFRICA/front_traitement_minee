@@ -111,6 +111,7 @@ export function AppSidebar() {
 
   // ── Calcul des permissions une seule fois ─────────────────────────────────
   const canViewDashboard   = hasPermission(PERMISSIONS.VIEW_DASHBOARD);
+  const canViewCollecte     = hasPermission(PERMISSIONS.VIEW_COLLECTE);
   const canViewDistrib     = hasPermission(PERMISSIONS.VIEW_DISTRIBUTION);
   const canViewProcessing  = hasPermission(PERMISSIONS.VIEW_PROCESSING);
   const canViewValidation  = hasPermission(PERMISSIONS.VIEW_VALIDATION);
@@ -155,7 +156,7 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               )}
 
-              {canViewDashboard && (
+              {canViewCollecte && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={pathname === "/collecte"} tooltip="Collecte terrain">
                     <Link href="/collecte">
