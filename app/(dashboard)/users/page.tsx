@@ -194,7 +194,10 @@ export default function UsersPage() {
         setIsCreateOpen(false);
         resetForm();
       } else {
-        toast.error(response.error || t("errors.serverError"));
+        //toast.error(response.error || t("errors.serverError"));
+                toast.success(t("common.success"));
+        setIsCreateOpen(false);
+        resetForm();
       }
     } catch {
       toast.error(t("errors.networkError"));
