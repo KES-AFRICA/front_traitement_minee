@@ -51,7 +51,7 @@ const TABLE_COLORS: Record<string, string> = {
   busbar:           "#f59e0b",
   bay:              "#10b981",
   switch:           "#ef4444",
-  wire:             "#a855f7",
+  wire:             "#ff0000",
   pole:             "#78716c",
   node:             "#9ca3af",
 };
@@ -172,7 +172,7 @@ export default function FullscreenMap({
   onMarkerClick,
   onWireClick,
   feederColor = "#6366f1",
-  wireColor = "#a855f7",
+  wireColor = "#ff0000",
 }: FullscreenMapProps) {
   const mapRef       = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -267,85 +267,89 @@ export default function FullscreenMap({
   useEffect(() => {
     let rafId: number;
 
-    const render = () => {
-      if (!mapInst.current || !layerGroup.current) {
-        rafId = requestAnimationFrame(render);
-        return;
+const render = () => {
+  if (!mapInst.current || !layerGroup.current) {
+    rafId = requestAnimationFrame(render);
+    return;
+  }
+
+  import("leaflet").then((L) => {
+    if (!mapInst.current || !layerGroup.current) return;
+
+    layerGroup.current.clearLayers();
+
+    // ── 1. DESSINER LES WIRES AVEC CONVERSION DES COORDONNÉES ──
+    if (wires && wires.length > 0) {
+      for (const wire of wires) {
+        if (wire.coordinates && wire.coordinates.length > 1) {
+          // ✅ CONVERSION CRITIQUE : [lng, lat] → [lat, lng]
+          const leafletCoordinates = wire.coordinates.map(([lng, lat]) => [lat, lng]);
+          
+          const isUnderground = wire.type === "souterrain";
+          
+          const lineOptions: any = {
+            color: wireColor,
+            weight: 5,
+            opacity: 0.9,
+            smoothFactor: 1,
+          };
+          
+          if (isUnderground) {
+            lineOptions.dashArray = "10, 8";
+            lineOptions.opacity = 0.7;
+          }
+          
+          const polyline = L.polyline(leafletCoordinates as any, lineOptions);
+          polyline.bindPopup(makeWirePopupHtml(wire), { maxWidth: 300 });
+          polyline.on("click", (e: any) => {
+            e.originalEvent?.stopPropagation?.();
+            onWireClick?.(wire);
+          });
+          polyline.addTo(layerGroup.current);
+        }
       }
+    }
 
-      import("leaflet").then((L) => {
-        if (!mapInst.current || !layerGroup.current) return;
+    // ── 2. MARKERS DES POSTES ──────────────────────────────────────────
+    const eqs = (Array.isArray(equipments) ? equipments : []) as EquipmentRecord[];
+    const allCoords: [number, number][] = [];
 
-        layerGroup.current.clearLayers();
+    for (const eq of eqs) {
+      const c = getCoords(eq);
+      if (!c) continue;
+      allCoords.push(c);
 
-        // ── 1. DESSINER LES WIRES SEULEMENT (plus de liaisons équipements) ──
-        if (wires && wires.length > 0) {
-          for (const wire of wires) {
-            if (wire.coordinates && wire.coordinates.length > 1) {
-              const isUnderground = wire.type === "souterrain";
-              
-              const lineOptions: any = {
-                color: wireColor,
-                weight: 5,  // ← ÉPAISSEUR AUGMENTÉE (était 3)
-                opacity: 0.9,
-                smoothFactor: 1,
-              };
-              
-              if (isUnderground) {
-                lineOptions.dashArray = "10, 8";
-                lineOptions.opacity = 0.7;
-              }
-              
-              const polyline = L.polyline(wire.coordinates, lineOptions);
-              polyline.bindPopup(makeWirePopupHtml(wire), { maxWidth: 300 });
-              polyline.on("click", (e: any) => {
-                e.originalEvent?.stopPropagation?.();
-                onWireClick?.(wire);
-              });
-              polyline.addTo(layerGroup.current);
-            }
+      const marker = L.marker(c, { icon: makeSVGIcon(eq, L) });
+      marker.bindPopup(makePopupHtml(eq), { maxWidth: 300 });
+      marker.on("click", () => onMarkerClick?.(eq));
+      marker.addTo(layerGroup.current);
+    }
+
+    // ── 3. AJOUTER LES COORDONNÉES DES WIRES POUR LE CENTRAGE ───────────
+    for (const wire of wires) {
+      if (wire.coordinates) {
+        for (const coord of wire.coordinates) {
+          if (coord && coord.length >= 2) {
+            // ✅ Conversion [lng, lat] → [lat, lng]
+            allCoords.push([coord[1], coord[0]]);
           }
         }
+      }
+    }
 
-        // ── 2. MARKERS DES POSTES ──────────────────────────────────────────
-        const eqs = (Array.isArray(equipments) ? equipments : []) as EquipmentRecord[];
-        const allCoords: [number, number][] = [];
-
-        for (const eq of eqs) {
-          const c = getCoords(eq);
-          if (!c) continue;
-          allCoords.push(c);
-
-          const marker = L.marker(c, { icon: makeSVGIcon(eq, L) });
-          marker.bindPopup(makePopupHtml(eq), { maxWidth: 300 });
-          marker.on("click", () => onMarkerClick?.(eq));
-          marker.addTo(layerGroup.current);
-        }
-
-        // ── 3. AJOUTER LES COORDONNÉES DES WIRES POUR LE CENTRAGE ───────────
-        for (const wire of wires) {
-          if (wire.coordinates) {
-            for (const coord of wire.coordinates) {
-              if (coord && coord.length >= 2) {
-                allCoords.push([coord[1], coord[0]]);
-              }
-            }
-          }
-        }
-
-        // ── 4. CENTRER LA VUE ───────────────────────────────────────────────
-        if (allCoords.length === 0) {
-          mapInst.current.setView([4.06, 9.72], 10);
-        } else if (allCoords.length === 1) {
-          mapInst.current.setView(allCoords[0], 14);
-        } else {
-          mapInst.current.fitBounds(
-            L.latLngBounds(allCoords),
-            { padding: [50, 50], maxZoom: 16 }
-          );
-        }
-      });
-    };
+    // ── 4. CENTRER LA VUE ───────────────────────────────────────────────
+    if (allCoords.length === 0) {
+      mapInst.current.setView([4.06, 9.72], 10);
+    } else if (allCoords.length === 1) {
+      mapInst.current.setView(allCoords[0], 14);
+    } else {
+      mapInst.current.fitBounds(
+        L.latLngBounds(allCoords),
+        { padding: [50, 50], maxZoom: 16 }
+      );
+    }
+  });
+};
 
     rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
