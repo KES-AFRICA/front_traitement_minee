@@ -7,7 +7,7 @@ export interface PosteMapItem {
   type:             string | null;  // H61, H59…
   type_poste_H61:   string | null;  // S, SL, SP…
   feeder:           string | null;
-  feeder_name:  string | null;
+  feeder_name:      string | null;
   exploitation:     string | null;
   regime:           string | null;
   regime_poste:     "publique" | "privee" | "mixte" | null;
@@ -24,6 +24,14 @@ export interface PosteMapItem {
 export interface PostesMapResponse {
   count:  number;
   postes: PosteMapItem[];
+}
+
+// ── Busbar (Jeu de barre) ─────────────────────────────────────────────────────
+export interface Busbar {
+  id:            string;
+  name:          string | null;
+  voltage_level: string | null;
+  phase:         string | null;
 }
 
 // ── Support & Armement ────────────────────────────────────────────────────────
@@ -97,6 +105,8 @@ export interface Cellule {
   signalisation: string | null;
   nom_cellule:   string | null;
   barcode_bay:   string | null;
+  busbar_id:     string | null;
+  busbar:        Busbar | null;
   photo_bay:     string | null;
   switches:      Switch[];
 }
@@ -165,23 +175,23 @@ export interface Batiment {
 
 // ── Équipements locaux (génie civil) ──────────────────────────────────────────
 export interface EquipementsLocal {
-  interrupteurs: string | null;
-  lampes:        string | null;
-  etat_lampes:   string | null;
+  interrupteurs:  string | null;
+  lampes:         string | null;
+  etat_lampes:    string | null;
   extracteur_air: string | null;
-  coffret:       string | null;
+  coffret:        string | null;
 }
 
 // ── Génie civil ───────────────────────────────────────────────────────────────
 export interface GenieCivil {
-  kobo_id:          number | null;
-  submission_time:  string | null;
-  submitted_by:     string | null;
-  superficie_batie: string | null;
-  voies:            Voies;
-  batiment:         Batiment;
+  kobo_id:           number | null;
+  submission_time:   string | null;
+  submitted_by:      string | null;
+  superficie_batie:  string | null;
+  voies:             Voies;
+  batiment:          Batiment;
   equipements_local: EquipementsLocal;
-  photos:           Record<string, string>;
+  photos:            Record<string, string>;
 }
 
 // ── Métadonnées ───────────────────────────────────────────────────────────────
@@ -201,47 +211,50 @@ export interface PostePhotos {
 
 // ── Détail complet d'un poste ─────────────────────────────────────────────────
 export interface PosteDetail {
-  substation_id:   string;
-  substation_name:          string | null;
-  latitude:        number | null;
-  longitude:       number | null;
+  substation_id:     string;
+  substation_name:   string | null;
+  latitude:          number | null;
+  longitude:         number | null;
 
   // Identification
-  feeder:          string | null;
-  feeder_name:          string | null;
-  type:            string | null;
-  type_poste_H61:  string | null;
-  exploitation:    string | null;
-  regime:          string | null;
-  regime_poste:    string | null;
-  zone_type:       string | null;
-  barcode_poste:   string | null;
-  ID2:             string | null;
+  feeder:            string | null;
+  feeder_name:       string | null;
+  type:              string | null;
+  type_poste_H61:    string | null;
+  exploitation:      string | null;
+  regime:            string | null;
+  regime_poste:      string | null;
+  zone_type:         string | null;
+  barcode_poste:     string | null;
+  ID2:               string | null;
 
   // État
-  statut_acces:    string | null;
-  terre_neutre_bt: string | null;
-  terre_masse:     string | null;
+  statut_acces:      string | null;
+  terre_neutre_bt:   string | null;
+  terre_masse:       string | null;
+
+  // Busbars
+  busbars:           Busbar[];
 
   // Équipements
-  support:         Support;
-  armement:        Armement;
-  appareillage:    Appareillage;
-  transformateurs: Transformateur[];
-  cellules:        Cellule[];
-  bt_boards:       BTBoard[];
+  support:           Support;
+  armement:          Armement;
+  appareillage:      Appareillage;
+  transformateurs:   Transformateur[];
+  cellules:          Cellule[];
+  bt_boards:         BTBoard[];
 
   // Commercial
   client_commercial: ClientCommercial | null;
 
   // Photos
-  photos: PostePhotos;
+  photos:            PostePhotos;
 
   // Génie civil lié
-  genie_civil: GenieCivil | null;
+  genie_civil:       GenieCivil | null;
 
   // Méta
-  meta: PosteMeta;
+  meta:              PosteMeta;
 }
 
 // ── Erreur API ────────────────────────────────────────────────────────────────
@@ -252,25 +265,25 @@ export interface ApiError {
 // ── Wire (Ligne) pour la carte ────────────────────────────────────────────────
 
 export interface WirePoint {
-  type: string;      // "poste", "derivation", "OCR"
-  code: string | null;
-  latitude: number | null;
+  type:      string;      // "poste", "derivation", "OCR"
+  code:      string | null;
+  latitude:  number | null;
   longitude: number | null;
 }
 
 export interface WireMapItem {
-  id: number;
-  feeder_id: string | null;
-  feeder_name: string | null;
-  type: string | null;  // "aerien", "souterrain", "mixte"
-  tension_kv: string | null;
-  phase: string | null;
-  debut: WirePoint;
-  fin: WirePoint;
+  id:              number;
+  feeder_id:       string | null;
+  feeder_name:     string | null;
+  type:            string | null;  // "aerien", "souterrain", "mixte"
+  tension_kv:      string | null;
+  phase:           string | null;
+  debut:           WirePoint;
+  fin:             WirePoint;
   waypoints_count: number;
-  coordinates: [number, number][];  // [[lng, lat], ...] pour Leaflet
+  coordinates:     [number, number][];
   submission_time: string | null;
-  submitted_by: string | null;
+  submitted_by:    string | null;
 }
 
 export interface WiresMapResponse {
@@ -278,111 +291,139 @@ export interface WiresMapResponse {
   wires: WireMapItem[];
 }
 
-// ── Détail complet d'un wire ──────────────────────────────────────────────────
+// ── Photos d'un wire ──────────────────────────────────────────────────────────
 
-export interface WireSupport {
-  index: number;
-  hauteur?: string | null;
-  etat?: string | null;
-  type_support?: string | null;
-  barcode?: string | null;
-  sens?: string | null;
-  hauteur_m?: string | null;
-  photo?: string | null;
+export interface WireFinPhotos {
+  photo:          string | null;
+  photo_armement: string | null;
+}
+
+export interface WireTronconPhotos {
+  cable?:               string | null;
+  support?:             string | null;
+  support_accessoires?: string | null;
+  armement?:            string | null;
+  supports?:            Array<{ support: string | null; armement: string | null }>;
+}
+
+export interface WirePhotos {
+  debut:    string | null;
+  fin:      WireFinPhotos | null;
+  troncons: WireTronconPhotos[];
+}
+
+// ── Support détaillé (avec photos) ────────────────────────────────────────────
+export interface WireSupportDetail {
+  index:            number;
+  hauteur?:         string | null;
+  etat?:            string | null;
+  type_support?:    string | null;
+  barcode?:         string | null;
+  sens?:            string | null;
+  hauteur_m?:       string | null;
+  type_remontee?:   string | null;  // AJOUTÉ
+  photo?:           string | null;
   photo_accessoires?: string | null;
   pba?: {
-    forme?: string | null;
+    forme?:     string | null;
     structure?: string | null;
-    effort?: string | null;
+    effort?:    string | null;
   };
   metallique?: {
-    forme?: string | null;
+    forme?:     string | null;
     structure?: string | null;
-    effort?: string | null;
+    effort?:    string | null;
   };
   armement?: {
-    type?: string | null;
-    nombre?: string | null;
-    etat?: string | null;
-    photo?: string | null;
+    type?:    string | null;
+    nombre?:  string | null;
+    etat?:    string | null;
+    photo?:   string | null;
   };
 }
 
-export interface WireTroncon {
+// ── Tronçon détaillé ──────────────────────────────────────────────────────────
+export interface WireTronconDetail {
   index: number;
   type: string; // "aerien", "souterrain", "remontee"
   aerien?: {
     caracteristique?: string | null;
     cable?: {
-      nature?: string | null;
+      nature?:  string | null;
       section?: string | null;
       isolant?: string | null;
     };
   };
   souterrain?: {
     cable?: {
-      nature?: string | null;
+      nature?:  string | null;
       section?: string | null;
       isolant?: string | null;
-      pose?: string | null;
+      pose?:    string | null;
     };
     points_remarquables?: any[];
   };
   remontee?: {
-    support?: WireSupport;
+    support?: WireSupportDetail;
     armement?: {
-      type?: string | null;
-      nombre?: string | null;
-      etat?: string | null;
-      photo?: string | null;
+      type?:    string | null;
+      nombre?:  string | null;
+      etat?:    string | null;
+      photo?:   string | null;
     };
     cable?: {
-      nature?: string | null;
+      nature?:  string | null;
       section?: string | null;
       isolant?: string | null;
-      pose?: string | null;
+      pose?:    string | null;
     };
   };
-  supports?: WireSupport[];
+  supports?: WireSupportDetail[];
 }
 
+// ── Détail complet d'un wire ──────────────────────────────────────────────────
 export interface WireDetail {
-  id: number;
-  uuid: string | null;
+  id:     number;
+  uuid:   string | null;
+  type?:  string | null;  // AJOUTÉ - "aerien", "souterrain", "mixte"
   
   feeder: {
-    id: string | null;
-    name: string | null;
+    id:         string | null;
+    name:       string | null;
     tension_kv: string | null;
-    phase: string | null;
+    phase:      string | null;
   };
   
   debut: {
-    type: string | null;
-    code: string | null;
+    type:        string | null;
+    code:        string | null;
     coordinates: {
-      latitude: number | null;
+      latitude:  number | null;
       longitude: number | null;
     };
-    details: Record<string, any>;
-    photo: string | null;
+    details:     Record<string, any>;
+    photo:       string | null;
   };
   
   fin: {
-    type: string | null;
-    details: Record<string, any>;
+    type:        string | null;
+    details:     Record<string, any>;
     coordinates: {
-      latitude: number | null;
+      latitude:  number | null;
       longitude: number | null;
     };
+    photos:      WireFinPhotos | null;
   };
   
-  troncons: WireTroncon[];
+  troncons: WireTronconDetail[];
+  
+  photos: WirePhotos;
   
   stats: {
     troncons_count: number;
     supports_count: number;
     total_waypoints: number;
+    total_photos: number;
   };
   
   geometry: {
@@ -397,9 +438,19 @@ export interface WireDetail {
   };
   
   meta: {
-    kobo_id: number;
+    kobo_id:         number;
     submission_time: string | null;
-    submitted_by: string | null;
-    version: string | null;
+    submitted_by:    string | null;
+    version:         string | null;
   };
+}
+
+// ── Type pour le wire enrichi (avec toutes les photos) ────────────────────────
+export interface WireEnriched extends WireDetail {
+  _attachments?: Array<{
+    download_url: string;
+    question_xpath: string;
+    mimetype: string;
+  }>;
+  _photos?: Record<string, string>;
 }

@@ -28,9 +28,10 @@ import { Separator } from "@/components/ui/separator";
 
 import { usePostesMap, useWiresMap, usePosteDetailLazy, useWireDetailLazy } from "@/hooks/useKobo";
 import { buildPhotoUrl } from "@/lib/api/services/koboService";
-import { PosteDetail, WireDetail } from "@/lib/types/kobo";
+import { PosteDetail, WireDetail, Busbar } from "@/lib/types/kobo";
 import { DateFilter } from "@/components/dashboard/date-filter";
 import { DateRange, DateRangeType, useDateFilter } from "@/hooks/use-date-filter-map";
+import React from "react";
 
 
 // ── Leaflet client-only ───────────────────────────────────────────────────────
@@ -276,7 +277,7 @@ export function PhotoThumb({ src, alt }: { src: string | null | undefined; alt: 
   return (
     <>
       <div
-        className="relative w-full h-64 rounded-lg overflow-hidden border bg-gray-500/20 cursor-pointer hover:opacity-90 transition-opacity"
+        className="relative w-full h-72 rounded-lg overflow-hidden border bg-gray-500/20 cursor-pointer hover:opacity-90 transition-opacity"
         onClick={handleClick}
       >
         <div className="absolute inset-0 z-10 overflow-hidden">
@@ -319,7 +320,7 @@ export function PhotoThumb({ src, alt }: { src: string | null | undefined; alt: 
   );
 }
 
-// ── Panneau de détail POSTE ─────────────────────────────────────────────────────────
+// ── Panneau de détail POSTE (avec busbars ajoutés) ─────────────────────────────────────────
 function DetailSheet({
   substationId,
   isOpen,
@@ -335,22 +336,24 @@ function DetailSheet({
   loading:      boolean;
   error:        string | null;
 }) {
+  const [isGenieCivilPhotosOpen, setIsGenieCivilPhotosOpen] = React.useState(false);
+
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
       <SheetContent
         side="right"
-        className="w-screen! sm:w-130! max-w-none! sm:max-w-130! flex flex-col p-0 overflow-hidden"
+        className="w-[95vw]! sm:w-[90vw]! max-w-none! flex flex-col p-0 overflow-hidden"
       >
-        <SheetHeader className="px-5 py-4 border-b shrink-0">
+        <SheetHeader className="px-5 py-4 border-b shrink-0 bg-linear-to-r from-blue-50/50 to-transparent">
           <div className="flex items-center gap-2">
             <Building2 className="h-5 w-5 text-blue-500" />
             <SheetTitle className="text-base">
-              {poste?.substation_id ?? substationId ?? "Poste"}
+              {poste?.substation_name ?? poste?.substation_id ?? substationId ?? "Poste"}
             </SheetTitle>
           </div>
           <SheetDescription>
             {poste
-              ? `${poste.type ?? ""} · ${poste.feeder ?? ""} · ${poste.exploitation ?? ""}`
+              ? `${poste.type ?? ""} · ${poste.feeder_name ?? poste.feeder ?? ""} · ${poste.exploitation ?? ""}`
               : "Chargement des détails…"}
           </SheetDescription>
         </SheetHeader>
@@ -372,169 +375,504 @@ function DetailSheet({
 
           {poste && !loading && (
             <>
-              <PhotoThumb src={poste.photos.photo_poste} alt="Photo du poste" />
-
-              <Section title="Identification">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Substation id"   value={poste.substation_id} />
-                  <Field label="Substation name"   value={poste.substation_name} />
-                  <Field label="Feeder id"        value={poste.feeder} />
-                  <Field label="Feeder name"        value={poste.feeder_name} />
-                  <Field label="Type"          value={poste.type} />
-                  <Field label="Exploitation"  value={poste.exploitation} />
-                  <Field label="Régime"        value={poste.regime} />
-                  <Field label="Régime poste"  value={poste.regime_poste} />
-                  <Field label="Zone"          value={poste.zone_type} />
-                  <Field label="Accès"         value={poste.statut_acces} />
-                  <Field label="Terre neutre"  value={poste.terre_neutre_bt} />
-                  <Field label="Terre masse"   value={poste.terre_masse} />
-                  {poste.latitude && poste.longitude && (
-                    <div className="col-span-2">
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">GPS</p>
-                      <p className="text-sm font-mono">
-                        {poste.latitude.toFixed(6)}, {poste.longitude.toFixed(6)}
-                      </p>
-                    </div>
-                  )}
+              {/* ==================== PHOTO PRINCIPALE + INFOS ==================== */}
+              <div className="flex flex-col sm:flex-row gap-5">
+                {/* 30% Photo */}
+                <div className="sm:w-1/3">
+                  <PhotoThumb src={poste.photos.photo_poste} alt="Photo du poste" />
                 </div>
-              </Section>
-
-              <Section title="Appareillage HTA">
-                <PhotoThumb
-                  src={poste.appareillage.photo_appareillage}
-                  alt="Appareillage"
-                />
-                <div className="grid grid-cols-2 gap-3 mt-2">
-                  <Field label="Parafoudre"       value={poste.appareillage.parafoudre} />
-                  <Field label="État parafoudre"  value={poste.appareillage.etat_parafoudre} />
-                  <Field label="Tableau BT"        value={poste.appareillage.tableau_bt} />
-                  <Field label="Détecteur défaut"  value={poste.appareillage.detecteur_defaut} />
-                  <Field label="Coupe-circuit"     value={poste.appareillage.coupe_circuit} />
-                  <Field label="Disjoncteur HP"    value={poste.appareillage.disjoncteur_hp} />
-                  <Field label="PMR"               value={poste.appareillage.pmr} />
-                </div>
-              </Section>
-
-              {poste.transformateurs.length > 0 && (
-                <Section title={`Transformateurs (${poste.transformateurs.length})`}>
-                  {poste.transformateurs.map((t, i) => (
-                    <div key={i} className="border rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold">{t.nom ?? `Transfo ${i + 1}`}</p>
-                        <Badge variant={t.actif === "TRUE" ? "default" : "secondary"}>
-                          {t.actif === "TRUE" ? "Actif" : "Inactif"}
-                        </Badge>
+                {/* 70% Infos générales */}
+                <div className="sm:w-2/3 space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <Field label="Substation ID" value={poste.substation_id} />
+                    <Field label="Substation name" value={poste.substation_name} />
+                    <Field label="Feeder ID" value={poste.feeder} />
+                    <Field label="Feeder name" value={poste.feeder_name} />
+                    <Field label="Type" value={poste.type} />
+                    <Field label="Type H61" value={poste.type_poste_H61} />
+                    <Field label="Exploitation" value={poste.exploitation} />
+                    <Field label="Régime" value={poste.regime} />
+                    <Field label="Régime poste" value={poste.regime_poste} />
+                    <Field label="Zone" value={poste.zone_type} />
+                    <Field label="ID2" value={poste.ID2} />
+                    <Field label="Accès" value={poste.statut_acces} />
+                    <Field label="Terre neutre BT" value={poste.terre_neutre_bt} />
+                    <Field label="Terre masse" value={poste.terre_masse} />
+                    {poste.latitude && poste.longitude && (
+                      <div className="col-span-2">
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">GPS</p>
+                        <p className="text-sm font-mono">
+                          {poste.latitude.toFixed(6)}, {poste.longitude.toFixed(6)}
+                        </p>
                       </div>
-                      <PhotoThumb src={t.photo_transfo} alt={`Transformateur ${t.nom}`} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Puissance"     value={t.puissance_kva ? `${t.puissance_kva} kVA` : null} />
-                        <Field label="Marque"        value={t.marque} />
-                        <Field label="Type"          value={t.type} />
-                        <Field label="Refroid."      value={t.refroidissement} />
-                        <Field label="État visuel"   value={t.etat_visuel} />
-                        <Field label="Rempl. planif" value={t.remplacement_planifie} />
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ==================== APPAREILLAGE HTA + SUPPORT & ARMEMENT (fusionnés sur une ligne) ==================== */}
+              {((poste.appareillage.parafoudre ||
+                poste.appareillage.etat_parafoudre ||
+                poste.appareillage.tableau_bt ||
+                poste.appareillage.detecteur_defaut ||
+                poste.appareillage.coupe_circuit ||
+                poste.appareillage.disjoncteur_hp ||
+                poste.appareillage.pmr ||
+                poste.appareillage.photo_appareillage) ||
+                (poste.support.hauteur ||
+                poste.support.etat ||
+                poste.support.type_support ||
+                poste.armement.type ||
+                poste.armement.etat ||
+                poste.armement.atronconnement)) && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider border-b pb-1">
+                    Appareillage HTA & Support / Armement
+                  </h3>
+                  <div className="border rounded-lg p-4 bg-card">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Colonne Appareillage HTA */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-5 bg-blue-500 rounded-full"></div>
+                          <p className="text-sm font-medium">Appareillage HTA</p>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="sm:w-1/2">
+                            <PhotoThumb src={poste.appareillage.photo_appareillage} alt="Appareillage" />
+                          </div>
+                          <div className="sm:w-1/2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <Field label="Parafoudre" value={poste.appareillage.parafoudre} />
+                              <Field label="État parafoudre" value={poste.appareillage.etat_parafoudre} />
+                              <Field label="Tableau BT" value={poste.appareillage.tableau_bt} />
+                              <Field label="Détecteur défaut" value={poste.appareillage.detecteur_defaut} />
+                              <Field label="Coupe-circuit" value={poste.appareillage.coupe_circuit} />
+                              <Field label="Disjoncteur HP" value={poste.appareillage.disjoncteur_hp} />
+                              <Field label="PMR" value={poste.appareillage.pmr} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Colonne Support & Armement */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-5 bg-green-500 rounded-full"></div>
+                          <p className="text-sm  text-black font-bold">Support & Armement</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="bg-muted/20 rounded-lg p-3">
+                            <p className="text-xs text-black font-bold mb-2">Support</p>
+                            <div className="space-y-1">
+                              <Field label="Hauteur" value={poste.support.hauteur ? `${poste.support.hauteur} m` : null} />
+                              <Field label="État" value={poste.support.etat} />
+                              <Field label="Type" value={poste.support.type_support} />
+                            </div>
+                          </div>
+                          <div className="bg-muted/20 rounded-lg p-3">
+                            <p className="text-xs text-black font-bold mb-2">Armement</p>
+                            <div className="space-y-1">
+                              <Field label="Type" value={poste.armement.type} />
+                              <Field label="État" value={poste.armement.etat} />
+                              <Field label="Atronconnement" value={poste.armement.atronconnement} />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </Section>
+                  </div>
+                </div>
               )}
 
-              {poste.cellules.length > 0 && (
-                <Section title={`Cellules HTA (${poste.cellules.length})`}>
-                  {poste.cellules.map((c, i) => (
-                    <div key={i} className="border rounded-lg p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold">{c.nom_cellule ?? c.bay_id}</p>
-                        <Badge variant="outline">{c.type_bay}</Badge>
+              {/* ==================== GÉNIE CIVIL ==================== */}
+              {poste.genie_civil && (() => {
+                const hasGenieData = !!(
+                  poste.genie_civil?.superficie_batie ||
+                  poste.genie_civil?.voies?.type ||
+                  poste.genie_civil?.voies?.largeur ||
+                  poste.genie_civil?.voies?.longueur ||
+                  poste.genie_civil?.voies?.surface ||
+                  poste.genie_civil?.voies?.observation ||
+                  poste.genie_civil?.batiment?.toiture ||
+                  poste.genie_civil?.batiment?.peinture_exterieur ||
+                  poste.genie_civil?.batiment?.etat_peinture_ext ||
+                  poste.genie_civil?.batiment?.portes ||
+                  poste.genie_civil?.batiment?.degradation_portes ||
+                  poste.genie_civil?.batiment?.structure_murs ||
+                  poste.genie_civil?.batiment?.etat_murs ||
+                  poste.genie_civil?.batiment?.bouches_ventilation ||
+                  poste.genie_civil?.batiment?.nb_bouches ||
+                  poste.genie_civil?.batiment?.etat_bouches ||
+                  poste.genie_civil?.batiment?.type_degrade_bouches ||
+                  poste.genie_civil?.batiment?.peinture_interieur ||
+                  poste.genie_civil?.batiment?.etat_peinture_int ||
+                  poste.genie_civil?.batiment?.dalle_couverture ||
+                  poste.genie_civil?.batiment?.revetement ||
+                  poste.genie_civil?.batiment?.etat_revetement ||
+                  poste.genie_civil?.batiment?.cloture ||
+                  poste.genie_civil?.batiment?.ouvrage_drainage ||
+                  poste.genie_civil?.batiment?.galeries_cables ||
+                  poste.genie_civil?.batiment?.type_galeries ||
+                  poste.genie_civil?.batiment?.etat_galeries ||
+                  poste.genie_civil?.batiment?.acces ||
+                  poste.genie_civil?.batiment?.type_acces ||
+                  poste.genie_civil?.batiment?.etat_acces ||
+                  poste.genie_civil?.equipements_local?.interrupteurs ||
+                  poste.genie_civil?.equipements_local?.lampes ||
+                  poste.genie_civil?.equipements_local?.etat_lampes ||
+                  poste.genie_civil?.equipements_local?.extracteur_air ||
+                  poste.genie_civil?.equipements_local?.coffret ||
+                  Object.keys(poste.genie_civil?.photos || {}).length > 0
+                );
+                return hasGenieData;
+              })() && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider border-b pb-1">
+                    Génie civil
+                  </h3>
+                  
+                  {/* TOUTES les données du génie civil */}
+                  {poste.genie_civil.superficie_batie && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <Field label="Superficie bâtie" value={`${poste.genie_civil.superficie_batie} m²`} />
+                    </div>
+                  )}
+
+                  {/* Voies d'accès - si au moins une donnée existe */}
+                  {(poste.genie_civil.voies.type ||
+                    poste.genie_civil.voies.largeur ||
+                    poste.genie_civil.voies.longueur ||
+                    poste.genie_civil.voies.surface ||
+                    poste.genie_civil.voies.observation) && (
+                    <div className="border rounded-lg p-3">
+                      <p className="text-sm font-medium mb-2">Voies d'accès</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <Field label="Type" value={poste.genie_civil.voies.type} />
+                        <Field label="Largeur" value={poste.genie_civil.voies.largeur ? `${poste.genie_civil.voies.largeur} m` : null} />
+                        <Field label="Longueur" value={poste.genie_civil.voies.longueur ? `${poste.genie_civil.voies.longueur} m` : null} />
+                        <Field label="Surface" value={poste.genie_civil.voies.surface ? `${poste.genie_civil.voies.surface} m²` : null} />
+                        <Field label="Observation" value={poste.genie_civil.voies.observation} />
                       </div>
-                      <PhotoThumb src={c.photo_bay} alt={`Cellule ${c.bay_id}`} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Fabricant"  value={c.fabricant} />
-                        <Field label="Modèle"     value={c.modele} />
-                        <Field label="Commande"   value={c.commande} />
-                        <Field label="État"       value={c.etat_visuel} />
+                    </div>
+                  )}
+
+                  {/* Bâtiment - si au moins une donnée existe */}
+                  {(poste.genie_civil.batiment.toiture ||
+                    poste.genie_civil.batiment.peinture_exterieur ||
+                    poste.genie_civil.batiment.etat_peinture_ext ||
+                    poste.genie_civil.batiment.portes ||
+                    poste.genie_civil.batiment.degradation_portes ||
+                    poste.genie_civil.batiment.structure_murs ||
+                    poste.genie_civil.batiment.etat_murs ||
+                    poste.genie_civil.batiment.bouches_ventilation ||
+                    poste.genie_civil.batiment.nb_bouches ||
+                    poste.genie_civil.batiment.etat_bouches ||
+                    poste.genie_civil.batiment.type_degrade_bouches ||
+                    poste.genie_civil.batiment.peinture_interieur ||
+                    poste.genie_civil.batiment.etat_peinture_int ||
+                    poste.genie_civil.batiment.dalle_couverture ||
+                    poste.genie_civil.batiment.revetement ||
+                    poste.genie_civil.batiment.etat_revetement ||
+                    poste.genie_civil.batiment.cloture ||
+                    poste.genie_civil.batiment.ouvrage_drainage ||
+                    poste.genie_civil.batiment.galeries_cables ||
+                    poste.genie_civil.batiment.type_galeries ||
+                    poste.genie_civil.batiment.etat_galeries ||
+                    poste.genie_civil.batiment.acces ||
+                    poste.genie_civil.batiment.type_acces ||
+                    poste.genie_civil.batiment.etat_acces) && (
+                    <div className="border rounded-lg p-3">
+                      <p className="text-sm text-black font-bold mb-2">Bâtiment</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+                        <Field label="Toiture" value={poste.genie_civil.batiment.toiture} />
+                        <Field label="Peinture extérieure" value={poste.genie_civil.batiment.peinture_exterieur} />
+                        <Field label="État peinture ext" value={poste.genie_civil.batiment.etat_peinture_ext} />
+                        <Field label="Portes" value={poste.genie_civil.batiment.portes} />
+                        <Field label="Dégradation portes" value={poste.genie_civil.batiment.degradation_portes} />
+                        <Field label="Structure murs" value={poste.genie_civil.batiment.structure_murs} />
+                        <Field label="État murs" value={poste.genie_civil.batiment.etat_murs} />
+                        <Field label="Bouches ventilation" value={poste.genie_civil.batiment.bouches_ventilation} />
+                        <Field label="Nb bouches" value={poste.genie_civil.batiment.nb_bouches} />
+                        <Field label="État bouches" value={poste.genie_civil.batiment.etat_bouches} />
+                        <Field label="Type dégradation bouches" value={poste.genie_civil.batiment.type_degrade_bouches} />
+                        <Field label="Peinture intérieure" value={poste.genie_civil.batiment.peinture_interieur} />
+                        <Field label="État peinture int" value={poste.genie_civil.batiment.etat_peinture_int} />
+                        <Field label="Dalle couverture" value={poste.genie_civil.batiment.dalle_couverture} />
+                        <Field label="Revetement" value={poste.genie_civil.batiment.revetement} />
+                        <Field label="État revetement" value={poste.genie_civil.batiment.etat_revetement} />
+                        <Field label="Clôture" value={poste.genie_civil.batiment.cloture} />
+                        <Field label="Ouvrage drainage" value={poste.genie_civil.batiment.ouvrage_drainage} />
+                        <Field label="Galeries câbles" value={poste.genie_civil.batiment.galeries_cables} />
+                        <Field label="Type galeries" value={poste.genie_civil.batiment.type_galeries} />
+                        <Field label="État galeries" value={poste.genie_civil.batiment.etat_galeries} />
+                        <Field label="Accès" value={poste.genie_civil.batiment.acces} />
+                        <Field label="Type accès" value={poste.genie_civil.batiment.type_acces} />
+                        <Field label="État accès" value={poste.genie_civil.batiment.etat_acces} />
                       </div>
-                      {c.switches.length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                            Switches ({c.switches.length})
-                          </p>
-                          {c.switches.map((sw, j) => (
-                            <div key={j} className="text-xs bg-muted/30 rounded px-2 py-1 flex justify-between">
-                              <span className="font-medium">{sw.nom}</span>
-                              <span className="text-muted-foreground">{sw.type}</span>
-                            </div>
-                          ))}
+                    </div>
+                  )}
+
+                  {/* Équipements locaux - si au moins une donnée existe */}
+                  {(poste.genie_civil.equipements_local.interrupteurs ||
+                    poste.genie_civil.equipements_local.lampes ||
+                    poste.genie_civil.equipements_local.etat_lampes ||
+                    poste.genie_civil.equipements_local.extracteur_air ||
+                    poste.genie_civil.equipements_local.coffret) && (
+                    <div className="border rounded-lg p-3">
+                      <p className="text-sm text-black font-bold mb-2">Équipements locaux</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <Field label="Interrupteurs" value={poste.genie_civil.equipements_local.interrupteurs} />
+                        <Field label="Lampes" value={poste.genie_civil.equipements_local.lampes} />
+                        <Field label="État lampes" value={poste.genie_civil.equipements_local.etat_lampes} />
+                        <Field label="Extracteur air" value={poste.genie_civil.equipements_local.extracteur_air} />
+                        <Field label="Coffret" value={poste.genie_civil.equipements_local.coffret} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Photos génie civil - DROPDOWN fermé par défaut */}
+                  {Object.keys(poste.genie_civil.photos).length > 0 && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <button
+                        onClick={() => setIsGenieCivilPhotosOpen(!isGenieCivilPhotosOpen)}
+                        className="w-full flex items-center justify-between p-3 bg-muted/20 hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-black font-bold">📷 Photos du génie civil</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {Object.keys(poste.genie_civil.photos).length}
+                          </Badge>
+                        </div>
+                        <svg
+                          className={`h-4 w-4 transition-transform duration-200 ${isGenieCivilPhotosOpen ? 'rotate-180' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {isGenieCivilPhotosOpen && (
+                        <div className="p-3 border-t">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {Object.entries(poste.genie_civil.photos).map(([key, path]) => (
+                              <PhotoThumb key={key} src={path} alt={key} />
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
-                  ))}
-                </Section>
-              )}
-
-              {poste.bt_boards.length > 0 && (
-                <Section title={`Tableaux BT (${poste.bt_boards.length})`}>
-                  {poste.bt_boards.map((bt, i) => (
-                    <div key={i} className="border rounded-lg p-3 space-y-2">
-                      <PhotoThumb src={bt.photo} alt={`Tableau BT ${i + 1}`} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Field label="Type"     value={bt.type} />
-                        <Field label="Capacité" value={bt.capacity} />
-                        <Field label="Actif"    value={bt.actif} />
-                      </div>
-                    </div>
-                  ))}
-                </Section>
-              )}
-
-              {poste.client_commercial && (
-                <Section title="Client commercial">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Nom"           value={poste.client_commercial.nom_client} />
-                    <Field label="Type"          value={poste.client_commercial.type_client} />
-                    <Field label="Type compteur" value={poste.client_commercial.type_compteur} />
-                    <Field label="N° compteur"   value={poste.client_commercial.mrid_compteur} />
-                    <Field label="Statut"        value={poste.client_commercial.statut_compteur} />
-                    <Field label="Scellé"        value={poste.client_commercial.statut_scelle} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <PhotoThumb src={poste.client_commercial.photo_disjoncteur} alt="Disjoncteur" />
-                    <PhotoThumb src={poste.client_commercial.photo_ensemble}    alt="Ensemble" />
-                  </div>
-                </Section>
-              )}
-
-              {poste.genie_civil && (
-                <Section title="Génie civil">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Superficie"     value={poste.genie_civil.superficie_batie ? `${poste.genie_civil.superficie_batie} m²` : null} />
-                    <Field label="Voie accès"     value={poste.genie_civil.voies.type} />
-                    <Field label="Toiture"        value={poste.genie_civil.batiment.toiture} />
-                    <Field label="Portes"         value={poste.genie_civil.batiment.portes} />
-                    <Field label="Murs"           value={poste.genie_civil.batiment.structure_murs} />
-                    <Field label="Bouches vent."  value={poste.genie_civil.batiment.bouches_ventilation} />
-                    <Field label="Galeries câbles" value={poste.genie_civil.batiment.galeries_cables} />
-                    <Field label="Clôture"        value={poste.genie_civil.batiment.cloture} />
-                    <Field label="Lampes"         value={poste.genie_civil.batiment.acces} />
-                    <Field label="Interrupteurs"  value={poste.genie_civil.equipements_local.interrupteurs} />
-                  </div>
-                  {Object.keys(poste.genie_civil.photos).length > 0 && (
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      {Object.entries(poste.genie_civil.photos).slice(0, 6).map(([key, path]) => (
-                        <PhotoThumb key={key} src={path} alt={key} />
-                      ))}
-                    </div>
                   )}
-                </Section>
+                </div>
               )}
 
-              <Section title="Métadonnées">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="ID Kobo"       value={String(poste.meta.kobo_id ?? "")} />
-                  <Field label="Saisi par"     value={poste.meta.submitted_by} />
-                  <Field label="Date saisie"   value={poste.meta.submission_time} />
+              {/* ==================== BUSBARS ==================== */}
+              {poste.busbars && poste.busbars.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider border-b pb-1">
+                    Busbars ({poste.busbars.length})
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {poste.busbars.map((busbar: Busbar) => (
+                      <div key={busbar.id} className="border rounded-lg p-3 bg-muted/10 hover:shadow-md transition-shadow">
+                        <p className="text-sm font-semibold text-blue-600">{busbar.name || busbar.id}</p>
+                        <div className="mt-2 space-y-1 text-xs">
+                          <p><span className="text-muted-foreground">ID:</span> {busbar.id}</p>
+                          {busbar.voltage_level && (
+                            <p><span className="text-muted-foreground">Tension:</span> {busbar.voltage_level} kV</p>
+                          )}
+                          {busbar.phase && (
+                            <p><span className="text-muted-foreground">Phase:</span> {busbar.phase}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </Section>
+              )}
+
+              {/* ==================== CELLULES HTA ==================== */}
+              {poste.cellules.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider  border-b pb-1">
+                    Cellules HTA ({poste.cellules.length})
+                  </h3>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {poste.cellules.map((c, i) => (
+                      <div key={i} className="border rounded-lg p-3 hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold">{c.nom_cellule ?? c.bay_id}</p>
+                          <Badge variant="outline">{c.type_bay}</Badge>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="sm:w-1/3">
+                            <PhotoThumb src={c.photo_bay} alt={`Cellule ${c.bay_id}`} />
+                          </div>
+                          <div className="sm:w-2/3">
+                            <div className="grid grid-cols-2 gap-2">
+                              <Field label="Fabricant" value={c.fabricant} />
+                              <Field label="Modèle" value={c.modele} />
+                              <Field label="Commande" value={c.commande} />
+                              <Field label="État visuel" value={c.etat_visuel} />
+                              <Field label="Signalisation" value={c.signalisation} />
+                            </div>
+                            {c.busbar && (
+                              <div className="mt-2 pt-2 border-t">
+                                <p className="text-[10px] text-black uppercase">Busbar associé</p>
+                                <p className="text-sm font-medium text-blue-600">{c.busbar.name || c.busbar.id}</p>
+                                {c.busbar.voltage_level && (
+                                  <p className="text-xs text-muted-foreground">{c.busbar.voltage_level} kV</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {c.switches.length > 0 && (
+                          <div className="mt-3 pt-2 border-t">
+                            <p className="text-[10px] text-muted-foreground uppercase mb-1">Switches ({c.switches.length})</p>
+                            <div className="flex flex-wrap gap-2">
+                              {c.switches.map((sw, j) => (
+                                <div key={j} className="text-xs bg-muted/30 rounded px-2 py-1">
+                                  <span className="font-medium">{sw.nom}</span>
+                                  <span className="text-muted-foreground ml-1">({sw.type})</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ==================== TRANSFORMATEURS ==================== */}
+              {poste.transformateurs.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider  border-b pb-1">
+                    Transformateurs ({poste.transformateurs.length})
+                  </h3>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {poste.transformateurs.map((t, i) => (
+                      <div key={i} className="border rounded-lg p-3 hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold">{t.nom ?? `Transfo ${i + 1}`}</p>
+                          <Badge variant={t.actif === "TRUE" ? "default" : "secondary"}>
+                            {t.actif === "TRUE" ? "Actif" : "Inactif"}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="sm:w-1/3">
+                            <PhotoThumb src={t.photo_transfo} alt={`Transformateur ${t.nom}`} />
+                          </div>
+                          <div className="sm:w-2/3">
+                            <div className="grid grid-cols-2 gap-2">
+                              <Field label="Puissance" value={t.puissance_kva ? `${t.puissance_kva} kVA` : null} />
+                              <Field label="Tension primaire" value={t.tension_primaire_kv ? `${t.tension_primaire_kv} kV` : null} />
+                              <Field label="Tension secondaire" value={t.tension_secondaire_kv ? `${t.tension_secondaire_kv} kV` : null} />
+                              <Field label="Marque" value={t.marque} />
+                              <Field label="Type" value={t.type} />
+                              <Field label="Refroidissement" value={t.refroidissement} />
+                              <Field label="État visuel" value={t.etat_visuel} />
+                              <Field label="Relai protection" value={t.relai_protection} />
+                              <Field label="Intervention" value={t.type_intervention} />
+                              <Field label="Remplacement planifié" value={t.remplacement_planifie} />
+                              <Field label="ID Transformer" value={t.id_transformer} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ==================== TABLEAUX BT ==================== */}
+              {poste.bt_boards.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider  border-b pb-1">
+                    Tableaux BT ({poste.bt_boards.length})
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {poste.bt_boards.map((bt, i) => (
+                      <div key={i} className="border rounded-lg p-3 hover:shadow-md transition-shadow">
+                        <PhotoThumb src={bt.photo} alt={`Tableau BT ${i + 1}`} />
+                        <div className="mt-2 space-y-1">
+                          <Field label="Type" value={bt.type} />
+                          <Field label="Capacité" value={bt.capacity} />
+                          <Field label="Actif" value={bt.actif} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ==================== CLIENT COMMERCIAL ==================== */}
+              {poste.client_commercial && (() => {
+                const hasClientData = !!(
+                  poste.client_commercial?.nom_client ||
+                  poste.client_commercial?.type_client ||
+                  poste.client_commercial?.activite ||
+                  poste.client_commercial?.telephone ||
+                  poste.client_commercial?.type_compteur ||
+                  poste.client_commercial?.mrid_compteur ||
+                  poste.client_commercial?.statut_compteur ||
+                  poste.client_commercial?.statut_scelle ||
+                  poste.client_commercial?.numero_scelle ||
+                  poste.client_commercial?.disjoncteur ||
+                  poste.client_commercial?.photo_disjoncteur ||
+                  poste.client_commercial?.photo_ensemble ||
+                  poste.client_commercial?.photo_index
+                );
+                return hasClientData;
+              })() && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider  border-b pb-1">
+                    Client commercial
+                  </h3>
+                  {/* Données d'abord */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <Field label="Nom client" value={poste.client_commercial.nom_client} />
+                    <Field label="Type client" value={poste.client_commercial.type_client} />
+                    <Field label="Activité" value={poste.client_commercial.activite} />
+                    <Field label="Téléphone" value={poste.client_commercial.telephone} />
+                    <Field label="Type compteur" value={poste.client_commercial.type_compteur} />
+                    <Field label="N° compteur" value={poste.client_commercial.mrid_compteur} />
+                    <Field label="Statut compteur" value={poste.client_commercial.statut_compteur} />
+                    <Field label="Statut scellé" value={poste.client_commercial.statut_scelle} />
+                    <Field label="N° scellé" value={poste.client_commercial.numero_scelle} />
+                    <Field label="Disjoncteur" value={poste.client_commercial.disjoncteur} />
+                  </div>
+                  {/* Photos ensuite (3 par ligne) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
+                    <PhotoThumb src={poste.client_commercial.photo_disjoncteur} alt="Disjoncteur" />
+                    <PhotoThumb src={poste.client_commercial.photo_ensemble} alt="Ensemble" />
+                    <PhotoThumb src={poste.client_commercial.photo_index} alt="Index compteur" />
+                  </div>
+                </div>
+              )}
+
+              {/* ==================== MÉTADONNÉES ==================== */}
+              {(poste.meta.kobo_id ||
+                poste.meta.uuid ||
+                poste.meta.submitted_by ||
+                poste.meta.submission_time ||
+                poste.meta.version) && (
+                <div className="space-y-3">
+                  <h3 className="text-xs text-black font-bold uppercase tracking-wider  border-b pb-1">
+                    Métadonnées
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="ID Kobo" value={String(poste.meta.kobo_id ?? "")} />
+                    <Field label="UUID" value={poste.meta.uuid} />
+                    <Field label="Saisi par" value={poste.meta.submitted_by} />
+                    <Field label="Date saisie" value={poste.meta.submission_time} />
+                    <Field label="Version" value={poste.meta.version} />
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -549,7 +887,7 @@ function DetailSheet({
   );
 }
 
-// ── Panneau de détail WIRE ─────────────────────────────────────────────────────────
+// ── Panneau de détail WIRE (avec photos ajoutées) ─────────────────────────────────────────
 function WireDetailSheet({
   wireId,
   isOpen,
@@ -580,7 +918,7 @@ function WireDetailSheet({
           </div>
           <SheetDescription>
             {wire
-              ? `${wire.feeder?.tension_kv ?? "?"} kV · ${wire.stats.troncons_count} tronçon(s)`
+              ? `${wire.feeder?.tension_kv ?? "?"} kV · ${wire.stats.troncons_count} tronçon(s) · ${wire.type === "aerien" ? "Aérienne" : wire.type === "souterrain" ? "Souterraine" : "Mixte"}`
               : "Chargement des détails…"}
           </SheetDescription>
         </SheetHeader>
@@ -625,6 +963,7 @@ function WireDetailSheet({
                       📍 {wire.debut.coordinates.latitude.toFixed(6)}, {wire.debut.coordinates.longitude.toFixed(6)}
                     </div>
                   )}
+                  {/* NOUVEAU: Photo du début */}
                   {wire.debut.photo && <PhotoThumb src={wire.debut.photo} alt="Photo début" />}
                   {Object.keys(wire.debut.details).length > 0 && (
                     <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t">
@@ -646,6 +985,17 @@ function WireDetailSheet({
                   {wire.fin.coordinates.latitude && wire.fin.coordinates.longitude && (
                     <div className="text-xs text-muted-foreground">
                       📍 {wire.fin.coordinates.latitude.toFixed(6)}, {wire.fin.coordinates.longitude.toFixed(6)}
+                    </div>
+                  )}
+                  {/* NOUVEAU: Photos de l'arrivée */}
+                  {wire.fin.photos && (
+                    <div className="space-y-2 mt-2">
+                      {wire.fin.photos.photo && (
+                        <PhotoThumb src={wire.fin.photos.photo} alt="Photo arrivée" />
+                      )}
+                      {wire.fin.photos.photo_armement && (
+                        <PhotoThumb src={wire.fin.photos.photo_armement} alt="Photo armement arrivée" />
+                      )}
                     </div>
                   )}
                   {Object.keys(wire.fin.details).length > 0 && (
@@ -688,6 +1038,14 @@ function WireDetailSheet({
                         {troncon.supports && troncon.supports.length > 0 && (
                           <div className="mt-2">
                             <p className="text-xs text-muted-foreground">Supports: {troncon.supports.length}</p>
+                            {/* NOUVEAU: Photos des supports */}
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                              {troncon.supports.slice(0, 4).map((support, sIdx) => (
+                                support.photo && (
+                                  <PhotoThumb key={sIdx} src={support.photo} alt={`Support ${support.index}`} />
+                                )
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -717,7 +1075,15 @@ function WireDetailSheet({
                             <Field label="Barcode" value={troncon.remontee.support.barcode} />
                             <Field label="Sens" value={troncon.remontee.support.sens} />
                             <Field label="Hauteur" value={troncon.remontee.support.hauteur_m} />
+                            <Field label="Type remontée" value={troncon.remontee.support.type_remontee} />
                           </div>
+                        )}
+                        {/* NOUVEAU: Photos de la remontée */}
+                        {troncon.remontee.support?.photo && (
+                          <PhotoThumb src={troncon.remontee.support.photo} alt="Photo support remontée" />
+                        )}
+                        {troncon.remontee.armement?.photo && (
+                          <PhotoThumb src={troncon.remontee.armement.photo} alt="Photo armement remontée" />
                         )}
                       </div>
                     )}

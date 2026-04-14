@@ -10,7 +10,7 @@ export interface EquipmentRecord {
   name?: string;
   latitude?: number | string | null;
   longitude?: number | string | null;
-  lattitude?: number | string | null; // faute de frappe dans le type Pole
+  lattitude?: number | string | null;
   type?: string;
   regime?: string;
   table?: string;
@@ -26,7 +26,7 @@ interface WireMapItem {
   coordinates: [number, number][];
   feeder_name?: string | null;
   tension_kv?: string | null;
-  type?: string; // "aerien", "souterrain", "mixte"
+  type?: string;
   debut_type?: string;
   fin_type?: string;
   [key: string]: unknown;
@@ -135,7 +135,7 @@ function makePopupHtml(eq: EquipmentRecord): string {
     .join("");
 
   return `
-    <div style="font-family:sans-serif;min-width:200px;max-width:280px; heigth:auto">
+    <div style="font-family:sans-serif;min-width:200px;max-width:280px; height:auto">
       <div style="font-weight:700;font-size:13px;margin-bottom:4px;padding-bottom:4px;border-bottom:2px solid ${color};color:${color}">
         ${eq.name || eq.m_rid}
       </div>
@@ -267,89 +267,88 @@ export default function FullscreenMap({
   useEffect(() => {
     let rafId: number;
 
-const render = () => {
-  if (!mapInst.current || !layerGroup.current) {
-    rafId = requestAnimationFrame(render);
-    return;
-  }
-
-  import("leaflet").then((L) => {
-    if (!mapInst.current || !layerGroup.current) return;
-
-    layerGroup.current.clearLayers();
-
-    // ── 1. DESSINER LES WIRES AVEC CONVERSION DES COORDONNÉES ──
-    if (wires && wires.length > 0) {
-      for (const wire of wires) {
-        if (wire.coordinates && wire.coordinates.length > 1) {
-          // ✅ CONVERSION CRITIQUE : [lng, lat] → [lat, lng]
-          const leafletCoordinates = wire.coordinates.map(([lng, lat]) => [lat, lng]);
-          
-          const isUnderground = wire.type === "souterrain";
-          
-          const lineOptions: any = {
-            color: wireColor,
-            weight: 5,
-            opacity: 0.9,
-            smoothFactor: 1,
-          };
-          
-          if (isUnderground) {
-            lineOptions.dashArray = "10, 8";
-            lineOptions.opacity = 0.7;
-          }
-          
-          const polyline = L.polyline(leafletCoordinates as any, lineOptions);
-          polyline.bindPopup(makeWirePopupHtml(wire), { maxWidth: 300 });
-          polyline.on("click", (e: any) => {
-            e.originalEvent?.stopPropagation?.();
-            onWireClick?.(wire);
-          });
-          polyline.addTo(layerGroup.current);
-        }
+    const render = () => {
+      if (!mapInst.current || !layerGroup.current) {
+        rafId = requestAnimationFrame(render);
+        return;
       }
-    }
 
-    // ── 2. MARKERS DES POSTES ──────────────────────────────────────────
-    const eqs = (Array.isArray(equipments) ? equipments : []) as EquipmentRecord[];
-    const allCoords: [number, number][] = [];
+      import("leaflet").then((L) => {
+        if (!mapInst.current || !layerGroup.current) return;
 
-    for (const eq of eqs) {
-      const c = getCoords(eq);
-      if (!c) continue;
-      allCoords.push(c);
+        layerGroup.current.clearLayers();
 
-      const marker = L.marker(c, { icon: makeSVGIcon(eq, L) });
-      marker.bindPopup(makePopupHtml(eq), { maxWidth: 300 });
-      marker.on("click", () => onMarkerClick?.(eq));
-      marker.addTo(layerGroup.current);
-    }
-
-    // ── 3. AJOUTER LES COORDONNÉES DES WIRES POUR LE CENTRAGE ───────────
-    for (const wire of wires) {
-      if (wire.coordinates) {
-        for (const coord of wire.coordinates) {
-          if (coord && coord.length >= 2) {
-            // ✅ Conversion [lng, lat] → [lat, lng]
-            allCoords.push([coord[1], coord[0]]);
+        // ── 1. DESSINER LES WIRES ──
+        if (wires && wires.length > 0) {
+          for (const wire of wires) {
+            if (wire.coordinates && wire.coordinates.length > 1) {
+              // Conversion [lng, lat] → [lat, lng] pour Leaflet
+              const leafletCoordinates = wire.coordinates.map(([lng, lat]) => [lat, lng]);
+              
+              const isUnderground = wire.type === "souterrain";
+              
+              const lineOptions: any = {
+                color: wireColor,
+                weight: 5,
+                opacity: 0.9,
+                smoothFactor: 1,
+              };
+              
+              if (isUnderground) {
+                lineOptions.dashArray = "10, 8";
+                lineOptions.opacity = 0.7;
+              }
+              
+              const polyline = L.polyline(leafletCoordinates as any, lineOptions);
+              polyline.bindPopup(makeWirePopupHtml(wire), { maxWidth: 300 });
+              polyline.on("click", (e: any) => {
+                e.originalEvent?.stopPropagation?.();
+                onWireClick?.(wire);
+              });
+              polyline.addTo(layerGroup.current);
+            }
           }
         }
-      }
-    }
 
-    // ── 4. CENTRER LA VUE ───────────────────────────────────────────────
-    if (allCoords.length === 0) {
-      mapInst.current.setView([4.06, 9.72], 10);
-    } else if (allCoords.length === 1) {
-      mapInst.current.setView(allCoords[0], 14);
-    } else {
-      mapInst.current.fitBounds(
-        L.latLngBounds(allCoords),
-        { padding: [50, 50], maxZoom: 16 }
-      );
-    }
-  });
-};
+        // ── 2. MARKERS DES POSTES ──
+        const eqs = (Array.isArray(equipments) ? equipments : []) as EquipmentRecord[];
+        const allCoords: [number, number][] = [];
+
+        for (const eq of eqs) {
+          const c = getCoords(eq);
+          if (!c) continue;
+          allCoords.push(c);
+
+          const marker = L.marker(c, { icon: makeSVGIcon(eq, L) });
+          marker.bindPopup(makePopupHtml(eq), { maxWidth: 300 });
+          marker.on("click", () => onMarkerClick?.(eq));
+          marker.addTo(layerGroup.current);
+        }
+
+        // ── 3. AJOUTER LES COORDONNÉES DES WIRES ──
+        for (const wire of wires) {
+          if (wire.coordinates) {
+            for (const coord of wire.coordinates) {
+              if (coord && coord.length >= 2) {
+                allCoords.push([coord[1], coord[0]]);
+              }
+            }
+          }
+        }
+
+        // ── 4. CENTRER LA VUE ──
+        if (allCoords.length === 0) {
+          mapInst.current.setView([4.06, 9.72], 10);
+        } else if (allCoords.length === 1) {
+          mapInst.current.setView(allCoords[0], 14);
+        } else {
+          mapInst.current.fitBounds(
+            L.latLngBounds(allCoords),
+            { padding: [50, 50], maxZoom: 16 }
+          );
+        }
+      });
+    };
 
     rafId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(rafId);
@@ -406,7 +405,7 @@ const render = () => {
         )}
       </div>
 
-      {/* Légende simplifiée */}
+      {/* Légende */}
       <div className="absolute bottom-3 left-3 z-10">
         <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-md overflow-hidden" style={{ minWidth: 150 }}>
           <button
@@ -421,18 +420,22 @@ const render = () => {
 
           {isLegendOpen && (
             <div className="px-3 pb-3 space-y-1.5 text-[11px] border-t border-gray-100">
-              {[
-                { table: "substation", label: "Poste", dot: "circle" },
-                { table: "feeder", label: "Feeder", dot: "circle" },
-              ].map(({ table, label, dot }) => {
-                const color = TABLE_COLORS[table] || "#6366f1";
-                return (
-                  <div key={table} className="flex items-center gap-2 py-0.5">
-                    {dot === "circle" && <div className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />}
-                    <span className="text-gray-700">{label}</span>
-                  </div>
-                );
-              })}
+              <div className="flex items-center gap-2 py-0.5">
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ background: TABLE_COLORS.substation }} />
+                <span className="text-gray-700">Poste</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ background: TABLE_COLORS.feeder }} />
+                <span className="text-gray-700">Feeder</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ background: TABLE_COLORS.busbar }} />
+                <span className="text-gray-700">Busbar</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ background: TABLE_COLORS.powertransformer }} />
+                <span className="text-gray-700">Transformateur</span>
+              </div>
               {/* Ligne aérienne */}
               <div className="flex items-center gap-2 pt-1.5 mt-1 border-t border-gray-100">
                 <div className="w-8 h-1 rounded shrink-0" style={{ background: wireColor }} />
