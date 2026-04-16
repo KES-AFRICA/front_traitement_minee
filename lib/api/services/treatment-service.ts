@@ -86,6 +86,10 @@ export const treatmentApi = {
   // MODIFICATION DES ATTRIBUTS
   // ============================================================
 
+async hideRecord(tableName: string, recordId: string): Promise<{ success: boolean; message: string; table: string; record_id: string; cacher: number }> {
+  return api.put(`${BASE_PATH}/treatments/cacher/${tableName}/${recordId}`);
+},
+
   async updateAttribute(request: AttributeUpdateRequest): Promise<AttributeUpdateResponse> {
     return api.put(`${BASE_PATH}/treatments/attribute`, request);
   },

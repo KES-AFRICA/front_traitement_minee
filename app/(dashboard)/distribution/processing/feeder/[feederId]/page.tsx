@@ -10,7 +10,7 @@ import {
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
   Layers, Info, MapPin, Save, UserCheck, Filter,
   Play, Timer, User, RefreshCw,
-  Loader2, Search, History, Clock, ChevronUp, ShieldAlert
+  Loader2, Search, History, Clock, ChevronUp, ShieldAlert, Trash2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,6 +59,7 @@ import {
   useSetPendingValidation,
   useValidateTreatment,
   useRejectTreatment,
+  useHideRecord,
 } from "@/hooks/use-treatment-service";
 import { usePreSaveCheck } from "@/hooks/use-compliance";
 
@@ -180,6 +181,136 @@ const fv = (v: unknown): string => {
   return String(v);
 };
 
+// ─── Modal de confirmation suppression doublon ─────────────────────────
+function DeleteDuplicateConfirmModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  occurrenceName,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  occurrenceName: string;
+  isLoading: boolean;
+}) {
+  const [countdown, setCountdown] = useState(10);
+  const [isConfirmEnabled, setIsConfirmEnabled] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCountdown(10);
+      setIsConfirmEnabled(false);
+      const interval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            setIsConfirmEnabled(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen]);
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <Trash2 className="h-5 w-5" />
+            Supprimer le doublon
+          </DialogTitle>
+          <DialogDescription>
+            Cette action est <strong className="text-red-600">IRRÉVERSIBLE</strong>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800">
+            <p className="text-sm text-red-700 dark:text-red-400">
+              Vous êtes sur le point de supprimer l'occurrence :
+            </p>
+            <p className="text-sm font-mono font-medium mt-1 break-all">{occurrenceName}</p>
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isLoading} className="cursor-pointer">
+            Annuler
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={!isConfirmEnabled || isLoading}
+            className="cursor-pointer"
+          >
+            {isLoading ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suppression...</>
+            ) : isConfirmEnabled ? (
+              <><Trash2 className="h-4 w-4 mr-2" />Confirmer la suppression</>
+            ) : (
+              <><Timer className="h-4 w-4 mr-2" />Attendre {countdown}s</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Modal confirmation finale ─────────────────────────────────────────
+function FinalConfirmModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  isLoading: boolean;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <ShieldAlert className="h-5 w-5" />
+            Confirmation finale
+          </DialogTitle>
+          <DialogDescription>
+            Êtes-vous absolument sûr de vouloir supprimer définitivement ce doublon ?
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <p className="text-sm text-muted-foreground">
+            Cette action ne peut pas être annulée. L'élément sera masqué définitivement.
+          </p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isLoading} className="cursor-pointer">
+            Non, annuler
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={isLoading}
+            className="cursor-pointer"
+          >
+            {isLoading ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suppression...</>
+            ) : (
+              <><Trash2 className="h-4 w-4 mr-2" />Oui, supprimer définitivement</>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Modal erreurs de validation ──────────────────────────────────────
 function ValidationErrorModal({
   isOpen,
@@ -210,8 +341,6 @@ function ValidationErrorModal({
               <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-red-700 dark:text-red-400">{err}</p>
-                
-                
               </div>
             </div>
           ))}
@@ -561,7 +690,7 @@ function AssignDialog({
   );
 }
 
-// ─── OccurrenceEditCard ───────────────────────────────────────────────
+// ─── OccurrenceEditCard (avec bouton supprimer) ──────────────────────────────
 function OccurrenceEditCard({
   occurrence,
   index,
@@ -599,6 +728,12 @@ function OccurrenceEditCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [showValidationModal, setShowValidationModal] = useState(false);
+  
+  // États pour la suppression
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showFinalConfirmModal, setShowFinalConfirmModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const hideRecordMutation = useHideRecord();
 
   const preSaveCheckMutation = usePreSaveCheck();
 
@@ -684,6 +819,36 @@ function OccurrenceEditCard({
     setIsSaving(false);
   };
 
+  // Gestion de la suppression du doublon
+  const handleDeleteClick = () => {
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = () => {
+    setShowDeleteModal(false);
+    setShowFinalConfirmModal(true);
+  };
+
+  const handleFinalConfirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const sqlTableName = TABLE_NAME_MAP[equipmentTable] ?? equipmentTable;
+      await hideRecordMutation.mutateAsync({
+        tableName: sqlTableName,
+        recordId: String(mrid),
+      });
+      toast.success(`Occurrence #${index + 1} supprimée avec succès`);
+      refreshData();
+      if (onCloseModal) onCloseModal();
+    } catch (error) {
+      console.error("Erreur lors de la suppression:", error);
+      toast.error("Erreur lors de la suppression");
+    } finally {
+      setIsDeleting(false);
+      setShowFinalConfirmModal(false);
+    }
+  };
+
   const hasChanges = editableFields.some(f => String(editedData[f]) !== String(localRecord[f]));
 
   return (
@@ -693,6 +858,22 @@ function OccurrenceEditCard({
         onClose={() => setShowValidationModal(false)}
         errors={validationErrors}
       />
+      
+      <DeleteDuplicateConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleConfirmDelete}
+        occurrenceName={occurrence.name || mrid}
+        isLoading={isDeleting}
+      />
+      
+      <FinalConfirmModal
+        isOpen={showFinalConfirmModal}
+        onClose={() => setShowFinalConfirmModal(false)}
+        onConfirm={handleFinalConfirmDelete}
+        isLoading={isDeleting}
+      />
+
       <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden bg-purple-50/30 dark:bg-purple-950/10">
         <div className="px-3 py-2.5 bg-purple-100/50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
@@ -701,9 +882,23 @@ function OccurrenceEditCard({
             </span>
             <span className="text-[10px] font-mono text-purple-600/70 break-all">{mrid}</span>
           </div>
-          {hasChanges && (
-            <span className="text-[10px] text-amber-600 font-medium">● modifié</span>
-          )}
+          <div className="flex items-center gap-2">
+            {hasChanges && (
+              <span className="text-[10px] text-amber-600 font-medium">● modifié</span>
+            )}
+            {canEdit && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteClick}
+                disabled={isDeleting}
+                className="h-7 px-2 text-xs gap-1 cursor-pointer"
+              >
+                <Trash2 className="h-3 w-3" />
+                Supprimer
+              </Button>
+            )}
+          </div>
         </div>
 
         {photoUrl && (
@@ -972,18 +1167,17 @@ function EquipmentDetailSheet({
     );
     if (changedFields.length === 0) { toast.info("Aucune modification détectée"); setIsSaving(false); return; }
 
+    const tableNameMapForPreSave: Record<string, string> = {
+      substations: "substation",
+      power_transformers: "powertransformer",
+      busbar: "bus_bar",
+      feeders: "feeder",
+      bay: "bay",
+      switch: "switch",
+      wire: "wire",
+    };
 
-const tableNameMapForPreSave: Record<string, string> = {
-  substations: "substation",
-  power_transformers: "powertransformer",
-  busbar: "bus_bar",
-  feeders: "feeder",
-  bay: "bay",
-  switch: "switch",
-  wire: "wire",
-};
-
-const tableNameForApi = tableNameMapForPreSave[equipment.table] ?? equipment.table;
+    const tableNameForApi = tableNameMapForPreSave[equipment.table] ?? equipment.table;
     const payload: Record<string, unknown> = { m_rid: equipment.mrid };
     changedFields.forEach(f => { payload[f] = editedData[f]; });
 

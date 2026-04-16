@@ -214,6 +214,21 @@ export const useSetCollecting = () => {
   });
 };
 
+
+export const useHideRecord = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: ({ tableName, recordId }: { tableName: string; recordId: string }) => 
+      treatmentApi.hideRecord(tableName, recordId),
+    onSuccess: (_, variables) => {
+      // Invalider les requêtes qui pourraient être affectées
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.recordId) });
+    },
+  });
+};
+
 export const useUpdateAttribute = () => {
   const queryClient = useQueryClient();
   
