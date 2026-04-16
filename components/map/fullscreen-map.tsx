@@ -183,7 +183,7 @@ export default function FullscreenMap({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [isLayerOpen,  setIsLayerOpen]  = useState(false);
-  const [currentLayer, setCurrentLayer] = useState<LayerType>("street");
+  const [currentLayer, setCurrentLayer] = useState<LayerType>("satellite");
 
   // CSS Leaflet
   useEffect(() => {
@@ -231,10 +231,11 @@ export default function FullscreenMap({
         scrollWheelZoom: true,
       });
 
-      tileRef.current = L.tileLayer(
-        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        { attribution: "© OpenStreetMap", maxZoom: 19 }
-      ).addTo(map);
+const initialLayer = currentLayer === "street" 
+  ? "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+  : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+
+tileRef.current = L.tileLayer(initialLayer, { maxZoom: 19 }).addTo(map);
 
       layerGroup.current = L.layerGroup().addTo(map);
       mapInst.current    = map;

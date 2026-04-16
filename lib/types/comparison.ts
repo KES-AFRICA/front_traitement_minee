@@ -56,6 +56,7 @@ export interface FeederSourceSubstation {
 export interface FeederSource {
   feeder_id: string;
   feeder_name: string;
+  treatment_status: string;
   substation_source: FeederSourceSubstation;
 }
 

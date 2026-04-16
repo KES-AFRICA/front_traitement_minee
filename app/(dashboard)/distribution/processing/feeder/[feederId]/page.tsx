@@ -56,7 +56,9 @@ import {
   useAllUsers,
   useSetPending,
   useSetCollecting,
-  useSetPendingValidation
+  useSetPendingValidation,
+  useValidateTreatment,
+  useRejectTreatment,
 } from "@/hooks/use-treatment-service";
 
 // ─── Leaflet client-only ──────────────────────────────────────────────
@@ -184,7 +186,7 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
     { table: "bay", label: "Cellules", icon: Box },
     { table: "powertransformer", label: "Transfo.", icon: Zap },
     { table: "switch", label: "Switchs", icon: ToggleLeft },
-    { table: "wire", label: "Câbles", icon: Cable },
+    { table: "wire", label: "Lignes", icon: Cable },
     { table: "bus_bar", label: "Bus Bars", icon: Layers },
   ];
 
@@ -510,6 +512,8 @@ function OccurrenceEditCard({
   equipmentTable,
   user,
   updateAttributeMutation,
+  refreshData,
+  onCloseModal,
 }: {
   occurrence: any;
   index: number;
@@ -519,6 +523,8 @@ function OccurrenceEditCard({
   equipmentTable: string;
   user: any;
   updateAttributeMutation: any;
+  refreshData: () => void;
+  onCloseModal?: () => void;
 }) {
   const HIDDEN_FIELDS = new Set([
     "qrcode", "precision", "photo", "exploitattion_m_rid", "collected_date",
@@ -527,10 +533,8 @@ function OccurrenceEditCard({
   ]);
   const LOCATION_FIELDS = new Set(["latitude", "longitude"]);
 
-  // On utilise un state local pour le record afin de refléter immédiatement les saves
   const [localRecord, setLocalRecord] = useState<Record<string, any>>({ ...(occurrence.full_record || {}) });
   const mrid = occurrence.m_rid;
-
   const [editedData, setEditedData] = useState<Record<string, any>>({ ...localRecord });
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -561,6 +565,11 @@ function OccurrenceEditCard({
     return "text";
   };
 
+  const getSelectValue = (value: any): string => {
+    if (value === 1 || value === "1") return "true";
+    return "false";
+  };
+
   const handleSave = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setIsSaving(true);
@@ -582,13 +591,14 @@ function OccurrenceEditCard({
           comment: `Correction doublon occurrence #${index + 1}`,
         })
       ));
-      // ✅ Mise à jour locale immédiate — pas de refresh nécessaire
       const updatedRecord = { ...localRecord };
       changedFields.forEach(f => { updatedRecord[f] = editedData[f]; });
       setLocalRecord(updatedRecord);
       setEditedData({ ...updatedRecord });
       toast.success(`Occurrence #${index + 1} — ${changedFields.length} champ(s) enregistré(s)`);
       onSaveSuccess(mrid, updatedRecord);
+      refreshData();
+      if (onCloseModal) onCloseModal();
     } catch {
       toast.error("Erreur lors de l'enregistrement");
     }
@@ -648,8 +658,13 @@ function OccurrenceEditCard({
               {!canEdit ? (
                 <div className="p-1.5 rounded bg-muted/20 text-xs font-mono">{fv(value)}</div>
               ) : inputType === "select" ? (
-                <Select value={String(value)} onValueChange={v => handleFieldChange(field, v === "true")}>
-                  <SelectTrigger className="h-8 text-xs cursor-pointer"><SelectValue /></SelectTrigger>
+                <Select 
+                  value={getSelectValue(value)} 
+                  onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
+                >
+                  <SelectTrigger className="h-8 text-xs cursor-pointer">
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
                     <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
@@ -688,8 +703,13 @@ function OccurrenceEditCard({
                     {!canEdit ? (
                       <div className="p-1.5 rounded bg-muted/20 text-xs font-mono text-muted-foreground">—</div>
                     ) : inputType === "select" ? (
-                      <Select value={String(value ?? "")} onValueChange={v => handleFieldChange(field, v === "true")}>
-                        <SelectTrigger className="h-8 text-xs cursor-pointer"><SelectValue placeholder="Non défini" /></SelectTrigger>
+                      <Select 
+                        value={getSelectValue(value)} 
+                        onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
+                      >
+                        <SelectTrigger className="h-8 text-xs cursor-pointer">
+                          <SelectValue placeholder="Non défini" />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
                           <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
@@ -734,16 +754,15 @@ function OccurrenceEditCard({
 // ─── Sheet détail équipement ───────────────────────────────────────────
 function EquipmentDetailSheet({
   equipment, isOpen, onClose, onSave, treatment, onFieldChange, isTreatmentActive, isTreatmentAllowed,
-  feederId, user, updateAttributeMutation,
+  feederId, user, updateAttributeMutation, refreshData,
 }: {
   equipment: EquipmentDetail | null; isOpen: boolean; onClose: () => void;
   onSave: (equipment: EquipmentDetail, updatedData: Record<string, unknown>) => void;
   treatment: TreatmentState; onFieldChange: (anomalyId: string, field: string, val: string) => void;
   isTreatmentActive: boolean; isTreatmentAllowed: boolean | null;
-  feederId: string; user: any; updateAttributeMutation: any;
+  feederId: string; user: any; updateAttributeMutation: any; refreshData: () => void;
 }) {
   const [editedData, setEditedData] = useState<Record<string, unknown>>({});
-  // State local pour refléter immédiatement les saves sans refresh
   const [localData, setLocalData] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -755,6 +774,13 @@ function EquipmentDetailSheet({
     "second_switch_m_rid", "pole_m_rid"
   ]);
   const LOCATION_FIELDS = new Set(["latitude", "longitude"]);
+
+  useEffect(() => {
+    if (equipment) {
+      setLocalData({ ...equipment.data });
+      setEditedData({ ...equipment.data });
+    }
+  }, [equipment]);
 
   const divergentFieldNames = useMemo(() => {
     const d = equipment?.anomalies.find(a => a.type === "divergence");
@@ -789,12 +815,11 @@ function EquipmentDetailSheet({
     return [...sortByPriority(fieldsWithValue), ...sortByPriority(fieldsWithoutValue)];
   }, [equipment, editedData, divergentFieldNames]);
 
-  useEffect(() => {
-    if (equipment) {
-      setLocalData({ ...equipment.data });
-      setEditedData({ ...equipment.data });
-    }
-  }, [equipment]);
+  const filteredFields = useMemo(() => {
+    const isDivergenceAnomaly = equipment?.anomalies.some(a => a.type === "divergence") ?? false;
+    if (!isDivergenceAnomaly) return allFields;
+    return allFields.filter(field => !divergentFieldNames.has(field));
+  }, [allFields, divergentFieldNames, equipment]);
 
   if (!equipment) return null;
 
@@ -809,11 +834,17 @@ function EquipmentDetailSheet({
   const canEdit = isTreatmentActive && isTreatmentAllowed;
   const isDuplicateAnomaly = equipment.anomalies.some(a => a.type === "duplicate");
   const duplicateAnomaly = equipment.anomalies.find(a => a.type === "duplicate");
+  const isDivergenceAnomaly = equipment.anomalies.some(a => a.type === "divergence");
 
   const getFieldInputType = (field: string): "text" | "number" | "select" => {
     if (["active", "is_injection", "is_feederhead", "normal_open", "display_scada"].includes(field)) return "select";
     if (["voltage", "apparent_power", "height", "w1_voltage", "w2_voltage", "highest_voltage_level"].includes(field)) return "number";
     return "text";
+  };
+
+  const getSelectValue = (value: any): string => {
+    if (value === 1 || value === "1") return "true";
+    return "false";
   };
 
   const handleFieldChange = (field: string, value: string | number | boolean) =>
@@ -822,7 +853,6 @@ function EquipmentDetailSheet({
   const handleSave = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setIsSaving(true);
-    // Cherche les champs changés par rapport au localData (pas equipment.data)
     const changedFields = Object.keys(editedData).filter(
       key => String(editedData[key]) !== String(localData[key]) && key !== "_anomalyType" && key !== "photo"
     );
@@ -841,18 +871,18 @@ function EquipmentDetailSheet({
           comment: `Modification depuis l'interface de traitement`,
         })
       ));
-      // ✅ Mise à jour locale immédiate — BD à jour + UI à jour sans refresh
       const updatedData = { ...localData };
       changedFields.forEach(f => { updatedData[f] = editedData[f]; });
       setLocalData(updatedData);
       setEditedData({ ...updatedData });
       toast.success(`${changedFields.length} champ(s) modifié(s) avec succès`);
       onSave(equipment, updatedData);
+      refreshData();
+      onClose(); // Ferme le modal après l'enregistrement
     } catch {
       toast.error("Erreur lors de la modification");
     }
     setIsSaving(false);
-    onClose();
   };
 
   const sheetWidthClass = isDuplicateAnomaly
@@ -897,13 +927,13 @@ function EquipmentDetailSheet({
                       occurrence={occ}
                       index={idx}
                       canEdit={!!canEdit}
-                      onSaveSuccess={(mrid, data) => {
-                        // propagation vers le parent si besoin
-                      }}
+                      onSaveSuccess={(mrid, data) => {}}
                       feederId={feederId}
                       equipmentTable={equipment.table}
                       user={user}
                       updateAttributeMutation={updateAttributeMutation}
+                      refreshData={refreshData}
+                      onCloseModal={onClose}
                     />
                   ))}
                 </div>
@@ -925,33 +955,58 @@ function EquipmentDetailSheet({
               </div>
             )}
 
-            {!isDuplicateAnomaly && equipment.anomalies.some(a => a.type === "divergence") && canEdit && (
-              <div className="space-y-2">
+            {/* SECTION DIVERGENCE - Champs modifiables directement */}
+            {!isDuplicateAnomaly && isDivergenceAnomaly && canEdit && (
+              <div className="space-y-3">
                 <Label className="text-xs font-semibold uppercase tracking-wider text-amber-600">
-                  Champs en divergence (Référence vs Collecté)
+                  Champs en divergence (modifiables directement)
                 </Label>
                 {equipment.anomalies
                   .filter(a => a.type === "divergence" && a.divergent_fields)
                   .flatMap(a => a.divergent_fields || [])
                   .map((field, idx) => {
-                    const anomalyId = equipment.anomalies.find(a => a.type === "divergence")?.id;
-                    const editedValue = anomalyId ? treatment[anomalyId]?.editedFields[field.field] : undefined;
-                    const currentValue = editedValue !== undefined ? editedValue : fv(field.collected_value);
+                    const currentValue = editedData[field.field] !== undefined 
+                      ? editedData[field.field] 
+                      : field.collected_value;
+                    const isModified = String(currentValue) !== String(localData[field.field]);
+                    const inputType = getFieldInputType(field.field);
+                    
                     return (
                       <div key={idx} className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-medium">{fl(field.field)}</span>
-                          <AnomalyBadge type="divergence" />
+                          <div className="flex items-center gap-2">
+                            <AnomalyBadge type="divergence" />
+                            {isModified && <span className="text-[10px] text-amber-600">modifié</span>}
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-xs">
                           <div>
-                            <p className="text-muted-foreground mb-1">Référence</p>
+                            <p className="text-muted-foreground mb-1">Valeur référence</p>
                             <p className="font-mono p-2 rounded bg-muted/30 line-through text-muted-foreground">{fv(field.reference_value)}</p>
                           </div>
                           <div>
-                            <p className="text-muted-foreground mb-1">Collecté</p>
-                            {anomalyId && (
-                              <Input value={currentValue} onChange={(e) => onFieldChange(anomalyId, field.field, e.target.value)} className="h-8 text-sm font-mono border-amber-500" />
+                            <p className="text-muted-foreground mb-1">Nouvelle valeur</p>
+                            {inputType === "select" ? (
+                              <Select 
+                                value={getSelectValue(currentValue)} 
+                                onValueChange={(v) => handleFieldChange(field.field, v === "true" ? 1 : 0)}
+                              >
+                                <SelectTrigger className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}>
+                                  <SelectValue placeholder="Sélectionner" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                                  <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input 
+                                type={inputType}
+                                value={String(currentValue ?? "")} 
+                                onChange={(e) => handleFieldChange(field.field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)} 
+                                className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}
+                              />
                             )}
                           </div>
                         </div>
@@ -961,7 +1016,8 @@ function EquipmentDetailSheet({
               </div>
             )}
 
-            {!isDuplicateAnomaly && !canEdit && equipment.anomalies.length > 0 && (
+            {/* AFFICHAGE DIVERGENCE SANS DROIT D'EDITION */}
+            {!isDuplicateAnomaly && isDivergenceAnomaly && !canEdit && (
               <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                 <div className="flex items-center gap-2 mb-2">
                   <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -1009,26 +1065,24 @@ function EquipmentDetailSheet({
               </div>
             )}
 
-            {!isDuplicateAnomaly && (
+            {/* AUTRES CHAMPS (hors divergence) */}
+            {!isDuplicateAnomaly && filteredFields.length > 0 && (
               <div className="space-y-4">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Données de l'équipement</Label>
-                {allFields.map((field) => {
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Autres données de l'équipement
+                  {isDivergenceAnomaly && <span className="ml-2 text-[10px] text-muted-foreground font-normal">(champs conformes)</span>}
+                </Label>
+                {filteredFields.map((field) => {
                   const value = editedData[field];
                   if (value === undefined) return null;
                   const originalValue = localData[field];
                   const isModified = String(value) !== String(originalValue);
                   const inputType = getFieldInputType(field);
-                  const isDivergentField = divergentFieldNames.has(field);
                   const isDisabled = !canEdit;
                   return (
                     <div key={field} className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground flex items-center justify-between">
-                        <div className="flex items-center gap-1">
-                          <span>{fl(field)}</span>
-                          {isDivergentField && (
-                            <Badge variant="outline" className="text-[9px] bg-amber-500/10 text-amber-600 border-amber-200">Divergence</Badge>
-                          )}
-                        </div>
+                        <span>{fl(field)}</span>
                         {isModified && canEdit && !isDisabled && (
                           <span className="text-[10px] text-amber-600">modifié</span>
                         )}
@@ -1036,8 +1090,13 @@ function EquipmentDetailSheet({
                       {isDisabled ? (
                         <div className="p-2 rounded-md bg-muted/20 text-sm font-mono">{fv(value)}</div>
                       ) : inputType === "select" ? (
-                        <Select value={String(value)} onValueChange={(v) => handleFieldChange(field, v === "true")}>
-                          <SelectTrigger className="h-9 text-sm cursor-pointer"><SelectValue /></SelectTrigger>
+                        <Select 
+                          value={getSelectValue(value)} 
+                          onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
+                        >
+                          <SelectTrigger className="h-9 text-sm cursor-pointer">
+                            <SelectValue placeholder="Sélectionner" />
+                          </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
                             <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
@@ -1046,9 +1105,10 @@ function EquipmentDetailSheet({
                       ) : (
                         <Input
                           type={inputType}
-                          value={String(value)}
+                          value={String(value ?? "")}
                           onChange={(e) => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
                           className={cn("h-9 text-sm", isModified && "border-amber-500 focus-visible:ring-amber-500")}
+                          placeholder="—"
                         />
                       )}
                       {isModified && originalValue !== undefined && canEdit && !isDisabled && (
@@ -1085,7 +1145,6 @@ function EquipmentDetailSheet({
     </>
   );
 }
-
 
 // ─── AnomalyCard ──────────────────────────────────────────────────────
 function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
@@ -1307,13 +1366,11 @@ function BayItem({ bayAnomaly, switches, filter, treatment, onFieldChange, onMar
   const Icon = TABLE_ICONS["bay"] || Box;
   const bayName = bayAnomaly.name || bayAnomaly.mrid;
 
-  // Filtre strict : si filtre actif, on n'affiche que les switchs qui correspondent
   const filteredSwitches = useMemo(() => {
     if (filter === "all") return switches;
     return switches.filter(s => s.type === filter);
   }, [switches, filter]);
 
-  // Si filtre actif : on n'affiche la bay que si elle-même ou ses switchs correspondent
   if (filter !== "all" && bayAnomaly.type !== filter && filteredSwitches.length === 0) return null;
 
   return (
@@ -1330,7 +1387,6 @@ function BayItem({ bayAnomaly, switches, filter, treatment, onFieldChange, onMar
 
       {isOpen && (
         <div className="pl-6 pr-3 py-2 space-y-2 border-t border-border/30">
-          {/* N'affiche la bayCard que si son type correspond au filtre (ou filtre=all) */}
           {(filter === "all" || bayAnomaly.type === filter) && (
             <AnomalyCard
               anomaly={bayAnomaly}
@@ -1383,12 +1439,10 @@ function SubstationItem({ substationAnomaly, bays, transformers, busbars, switch
   const Icon = TABLE_ICONS["substation"] || Building2;
   const substationName = substationAnomaly.name || substationAnomaly.mrid;
 
-  // Filtre strict sur chaque catégorie d'enfants
   const filteredBays = useMemo(() => {
     if (filter === "all") return bays;
     return bays.filter(b => {
       if (b.type === filter) return true;
-      // Garde la bay si elle a des switchs qui correspondent
       const baySwitches = switchesByBay.get(b.mrid) || [];
       return baySwitches.some(s => s.type === filter);
     });
@@ -1407,7 +1461,6 @@ function SubstationItem({ substationAnomaly, bays, transformers, busbars, switch
   const hasChildren = filteredBays.length > 0 || filteredTransformers.length > 0 || filteredBusbars.length > 0;
   const substationMatchesFilter = filter === "all" || substationAnomaly.type === filter;
 
-  // Cache la substation si elle ne correspond pas au filtre et n'a pas d'enfants correspondants
   if (!substationMatchesFilter && !hasChildren) return null;
 
   return (
@@ -1418,18 +1471,18 @@ function SubstationItem({ substationAnomaly, bays, transformers, busbars, switch
       >
         {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
         <div className="p-1 rounded-md bg-primary/10"><Icon className="h-3.5 w-3.5 text-primary" /></div>
-        <span className="font-medium text-sm flex-1 truncate">{substationName}</span>
-        {substationAnomaly.data?.type && (
-          <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-full">
-            {substationAnomaly.data.type}
-          </span>
-        )}
-        
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm flex-1 truncate">{substationName}</span>
+          {substationAnomaly.data?.type && (
+            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-full">
+              {substationAnomaly.data.type}
+            </span>
+          )}
+        </div>
       </button>
 
       {isOpen && (
         <div className="p-3 space-y-3 border-t border-border/40">
-          {/* N'affiche la carte substation que si son type correspond au filtre */}
           {substationMatchesFilter && (
             <AnomalyCard
               anomaly={substationAnomaly}
@@ -1753,6 +1806,8 @@ export default function FeederProcessingPage() {
   const setPendingMutation = useSetPending();
   const setCollectingMutation = useSetCollecting();
   const setPendingValidationMutation = useSetPendingValidation();
+  const validateMutation = useValidateTreatment();
+  const rejectMutation = useRejectTreatment();
   const updateAttributeMutation = useUpdateAttribute();
 
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
@@ -1762,7 +1817,6 @@ export default function FeederProcessingPage() {
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
-  // Historique des modifications récentes
   const [recentEdits, setRecentEdits] = useState<RecentEdit[]>([]);
 
   const feederStatus = treatmentStatus?.status || "collecting";
@@ -1778,11 +1832,42 @@ export default function FeederProcessingPage() {
   const processingAgents = useMemo(() => usersData?.data || [], [usersData]);
   const mapEquipments = useMemo(() => convertToMapEquipments(comparisonResult, activeFilter), [comparisonResult, activeFilter]);
 
+  // Charger l'historique depuis localStorage au chargement
+  const loadRecentEditsFromStorage = useCallback(() => {
+    if (typeof window !== 'undefined' && feederId) {
+      const stored = localStorage.getItem(`recent_edits_${feederId}`);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setRecentEdits(parsed);
+        } catch (e) {
+          console.error("Erreur chargement historique", e);
+        }
+      }
+    }
+  }, [feederId]);
+
+  // Sauvegarder l'historique dans localStorage
+  const saveRecentEditsToStorage = useCallback((edits: RecentEdit[]) => {
+    if (typeof window !== 'undefined' && feederId) {
+      localStorage.setItem(`recent_edits_${feederId}`, JSON.stringify(edits));
+    }
+  }, [feederId]);
+
+  useEffect(() => {
+    loadRecentEditsFromStorage();
+  }, [loadRecentEditsFromStorage]);
+
+  const refreshAllData = useCallback(() => {
+    refresh();
+    refetchStatus();
+    refetchUsers();
+  }, [refresh, refetchStatus, refetchUsers]);
+
   useEffect(() => {
     if (feederId) { setTreatment({}); setRecentEdits([]); refetchUsers(); refetchStatus(); }
   }, [feederId, refetchUsers, refetchStatus]);
 
-  // ─── Conversion anomalies ─────────────────────────────────────────────
   const allAnomalies: AnomalyItem[] = useMemo(() => {
     if (!comparisonResult) return [];
     const anomalies: AnomalyItem[] = [];
@@ -1806,7 +1891,6 @@ export default function FeederProcessingPage() {
     return anomalies;
   }, [comparisonResult]);
 
-  // ─── Regroupement par substation ─────────────────────────────────────
   const { substationsList, switchesByBay } = useMemo(() => {
     const substations = allAnomalies.filter(a => a.table === "substation");
     const bays = allAnomalies.filter(a => a.table === "bay");
@@ -1879,11 +1963,10 @@ export default function FeederProcessingPage() {
     };
   }, [summary, allAnomalies]);
 
-  // ─── Handlers ──────────────────────────────────────────────────────────
   const handleCompleteCollection = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setPendingMutation.mutate({ feeder_id: feederId, completed_by: user.id, completed_by_name: `${user.firstName} ${user.lastName}` }, {
-      onSuccess: () => { toast.success("Collecte terminée. En attente de traitement."); refetchStatus(); },
+      onSuccess: () => { toast.success("Collecte terminée. En attente de traitement."); refetchStatus(); refreshAllData(); },
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
@@ -1891,7 +1974,7 @@ export default function FeederProcessingPage() {
   const handleBackToCollecting = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setCollectingMutation.mutate({ feeder_id: feederId, changed_by: user.id, changed_by_name: `${user.firstName} ${user.lastName}` }, {
-      onSuccess: () => { toast.success("Départ remis en cours de collecte"); refetchStatus(); },
+      onSuccess: () => { toast.success("Départ remis en cours de collecte"); refetchStatus(); refreshAllData(); },
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
@@ -1899,7 +1982,7 @@ export default function FeederProcessingPage() {
   const handleAssign = async (agentId: string, agentName: string) => {
     setIsAssigning(true);
     assignMutation.mutate({ feeder_id: feederId, agent_id: agentId, agent_name: agentName, assigned_by: user?.id || "", assigned_by_name: `${user?.firstName || ""} ${user?.lastName || ""}` }, {
-      onSuccess: () => { toast.success(`Assigné à ${agentName}`); setIsAssignDialogOpen(false); setIsReassignDialogOpen(false); refetchStatus(); },
+      onSuccess: () => { toast.success(`Assigné à ${agentName}`); setIsAssignDialogOpen(false); setIsReassignDialogOpen(false); refetchStatus(); refreshAllData(); },
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`),
       onSettled: () => setIsAssigning(false)
     });
@@ -1908,7 +1991,7 @@ export default function FeederProcessingPage() {
   const handleStartTreatment = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     startMutation.mutate({ feeder_id: feederId, started_by: user.id, started_by_name: `${user.firstName} ${user.lastName}` }, {
-      onSuccess: () => { toast.success("Traitement démarré"); refetchStatus(); },
+      onSuccess: () => { toast.success("Traitement démarré"); refetchStatus(); refreshAllData(); },
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
@@ -1916,34 +1999,47 @@ export default function FeederProcessingPage() {
   const handleCompleteTreatment = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setPendingValidationMutation.mutate({ feeder_id: feederId, completed_by: user.id, completed_by_name: `${user.firstName} ${user.lastName}` }, {
-      onSuccess: () => { toast.success("Traitement terminé, en attente de validation"); refetchStatus(); },
+      onSuccess: () => { toast.success("Traitement terminé, en attente de validation"); refetchStatus(); refreshAllData(); },
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
 
-  const handleValidate = () => toast.warning("en cours de développement");
-  const handleReject = () => toast.warning("en cours de développement");
+  const handleValidate = () => {
+    if (!user) { toast.error("Utilisateur non connecté"); return; }
+    validateMutation.mutate({ feeder_id: feederId, validated_by: user.id, validated_by_name: `${user.firstName} ${user.lastName}` }, {
+      onSuccess: () => { toast.success("Départ validé avec succès"); refetchStatus(); refreshAllData(); },
+      onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
+    });
+  };
+
+  const handleReject = () => {
+    if (!user) { toast.error("Utilisateur non connecté"); return; }
+    rejectMutation.mutate({ feeder_id: feederId, rejected_by: user.id, rejected_by_name: `${user.firstName} ${user.lastName}`, reason: "Rejeté par l'agent" }, {
+      onSuccess: () => { toast.success("Départ rejeté"); refetchStatus(); refreshAllData(); },
+      onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
+    });
+  };
 
   const handleEquipmentSave = useCallback((equipment: EquipmentDetail, updatedData: Record<string, unknown>) => {
-    // Calcule les champs modifiés pour l'historique
     const changedFields = Object.keys(updatedData).filter(
       key => String(updatedData[key]) !== String(equipment.data[key]) && key !== "_anomalyType" && key !== "photo"
     );
     if (changedFields.length === 0) return;
 
-    // ✅ Ajoute à l'historique des modifications récentes
     setRecentEdits(prev => {
       const filtered = prev.filter(e => e.mrid !== equipment.mrid);
-      return [{
+      const newEdits = [{
         mrid: equipment.mrid,
         name: equipment.name,
         table: equipment.table,
         editedAt: Date.now(),
         fieldsChanged: changedFields,
         equipment: { ...equipment, data: { ...equipment.data, ...updatedData } },
-      }, ...filtered].slice(0, 10); // garde les 10 dernières modifs
+      }, ...filtered].slice(0, 10);
+      saveRecentEditsToStorage(newEdits);
+      return newEdits;
     });
-  }, []);
+  }, [saveRecentEditsToStorage]);
 
   const handleFieldChange = useCallback((id: string, field: string, val: string) => {
     setTreatment((prev) => ({ ...prev, [id]: { treated: prev[id]?.treated ?? false, editedFields: { ...(prev[id]?.editedFields ?? {}), [field]: val } } }));
@@ -1974,7 +2070,7 @@ export default function FeederProcessingPage() {
   };
 
   const renderActionButtons = () => {
-    if (feederStatus === "collecting" || feederStatus === "validated" || feederStatus === "rejected") {
+    if (feederStatus === "collecting") {
       return (
         <Button onClick={handleCompleteCollection} className="gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700" disabled={setPendingMutation.isPending}>
           {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : feederStatus === "collecting" ? <Check className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
@@ -1982,6 +2078,16 @@ export default function FeederProcessingPage() {
         </Button>
       );
     }
+    if (feederStatus === "validated" || feederStatus === "rejected") {
+      return (
+        <Button onClick={handleCompleteTreatment} className="gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700" disabled={setPendingMutation.isPending}>
+          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> :  <RefreshCw className="h-4 w-4 mr-2" />}
+          Remettre en validation
+        </Button>
+      );
+    }
+
+    
     if (feederStatus === "pending") {
       return (
         <div className="flex flex-col gap-2 w-full sm:w-auto">
@@ -2115,15 +2221,14 @@ export default function FeederProcessingPage() {
 
   return (
     <div className="w-full min-w-0 space-y-4 px-2 sm:px-4 md:px-6 py-4">
-      {/* ─── En-tête ────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
             <button
-              onClick={refresh}
+              onClick={refreshAllData}
               className="flex items-center gap-1 text-sm px-3 py-1 rounded border hover:bg-muted disabled:opacity-50"
             >
-              Actualiser
+              <RefreshCw className="h-3.5 w-3.5" /> Actualiser
             </button>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -2155,7 +2260,6 @@ export default function FeederProcessingPage() {
         </div>
       </div>
 
-      {/* ─── KPI Cards anomalies ─────────────────────────────────────── */}
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-4 md:grid-cols-7 sm:gap-2">
         {KPI_CONFIG.map((cfg) => {
           const count = counts[cfg.type];
@@ -2197,27 +2301,22 @@ export default function FeederProcessingPage() {
         </div>
       )}
 
-      {/* ─── Carte ──────────────────────────────────────────────────── */}
       <div className="w-full rounded-xl overflow-hidden border border-border" style={{ height: "40vh", minHeight: 250 }}>
         <FullscreenMap equipments={mapEquipments} onMarkerClick={() => {}} feederColor="#6366f1" />
       </div>
 
-      {/* ─── KPIs par type d'équipement ─────────────────────────────── */}
       <EquipmentTypeKPIs allAnomalies={allAnomalies} />
 
-      {/* ─── Barre de recherche ──────────────────────────────────────── */}
       <EquipmentSearchBar
         allAnomalies={allAnomalies}
         onEquipmentClick={handleEquipmentClick}
       />
 
-      {/* ─── Historique des modifications ────────────────────────────── */}
       <RecentEditsPanel
         recentEdits={recentEdits}
         onEquipmentClick={handleEquipmentClick}
       />
 
-      {/* ─── Arborescence ─────────────────────────────────────────────── */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           {activeFilter === "all"
@@ -2270,7 +2369,6 @@ export default function FeederProcessingPage() {
         )}
       </div>
 
-      {/* ─── Sheet détails ───────────────────────────────────────────── */}
       <EquipmentDetailSheet
         equipment={selectedEquipment}
         isOpen={isSheetOpen}
@@ -2283,9 +2381,9 @@ export default function FeederProcessingPage() {
         feederId={feederId}
         user={user}
         updateAttributeMutation={updateAttributeMutation}
+        refreshData={refreshAllData}
       />
 
-      {/* ─── Dialogs assignation ────────────────────────────────────── */}
       <AssignDialog isOpen={isAssignDialogOpen} onClose={() => setIsAssignDialogOpen(false)} onAssign={handleAssign} feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={false} />
       <AssignDialog isOpen={isReassignDialogOpen} onClose={() => setIsReassignDialogOpen(false)} onAssign={handleAssign} feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={true} />
     </div>

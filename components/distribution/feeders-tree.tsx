@@ -46,59 +46,82 @@ export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
   const [openDecoupages, setOpenDecoupages] = useState<Record<string, boolean>>({});
   const [openSubstations, setOpenSubstations] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    const feeders = data?.feeders || [];
-    if (feeders.length === 0) return;
+useEffect(() => {
+  const allFeeders = data?.feeders || [];
 
-    // Grouper par découpage puis par poste source
-    const groups: Record<string, Record<string, FeederTreeSubstation>> = {};
+  // Filtrage par status
+  const feeders = allFeeders.filter((feeder: any) => {
+    const status = feeder.treatment_status;
 
-    for (const feeder of feeders) {
-      const decoupage = feeder.substation_source?.decoupage || "Non défini";
-      const substationId = feeder.substation_source?.id || "unknown";
-      const substationName = feeder.substation_source?.name || "Poste inconnu";
-
-      if (!groups[decoupage]) {
-        groups[decoupage] = {};
-      }
-      if (!groups[decoupage][substationId]) {
-        groups[decoupage][substationId] = {
-          id: substationId,
-          name: substationName,
-          feeders: []
-        };
-      }
-      groups[decoupage][substationId].feeders.push({
-        feeder_id: feeder.feeder_id,
-        feeder_name: feeder.feeder_name,
-        assigned_agent_id: feeder.assigned_agent_id,
-        assigned_agent_name: feeder.assigned_agent_name,
-        treatment_status: feeder.treatment_status
-      });
+    if (mode === "processing") {
+      return !["validated", "rejected", "pending_validation"].includes(status);
     }
 
-    // Convertir en tableau
-    const result: FeederTreeGroup[] = Object.entries(groups).map(([decoupage, substationsMap]) => ({
+    if (mode === "validation") {
+      return ["validated", "pending_validation", "rejected"].includes(status);
+    }
+
+    return true;
+  });
+
+  if (feeders.length === 0) {
+    setGroupedData([]);
+    return;
+  }
+
+  const groups: Record<string, Record<string, FeederTreeSubstation>> = {};
+
+  for (const feeder of feeders) {
+    const decoupage = feeder.substation_source?.decoupage || "Non défini";
+    const substationId = feeder.substation_source?.id || "unknown";
+    const substationName = feeder.substation_source?.name || "Poste inconnu";
+
+    if (!groups[decoupage]) {
+      groups[decoupage] = {};
+    }
+
+    if (!groups[decoupage][substationId]) {
+      groups[decoupage][substationId] = {
+        id: substationId,
+        name: substationName,
+        feeders: []
+      };
+    }
+
+    groups[decoupage][substationId].feeders.push({
+      feeder_id: feeder.feeder_id,
+      feeder_name: feeder.feeder_name,
+      assigned_agent_id: feeder.assigned_agent_id,
+      assigned_agent_name: feeder.assigned_agent_name,
+      treatment_status: feeder.treatment_status
+    });
+  }
+
+  const result: FeederTreeGroup[] = Object.entries(groups).map(
+    ([decoupage, substationsMap]) => ({
       decoupage,
       substations: Object.values(substationsMap)
-    }));
+    })
+  );
 
-    setGroupedData(result);
+  setGroupedData(result);
 
-    // Auto-expand le découpage et la substation du feeder sélectionné
-    if (selectedFeederId) {
-      for (const group of result) {
-        for (const substation of group.substations) {
-          const hasSelected = substation.feeders.some(f => String(f.feeder_id) === String(selectedFeederId));
-          if (hasSelected) {
-            setOpenDecoupages(prev => ({ ...prev, [group.decoupage]: true }));
-            setOpenSubstations(prev => ({ ...prev, [substation.id]: true }));
-            break;
-          }
+  // Auto-expand
+  if (selectedFeederId) {
+    for (const group of result) {
+      for (const substation of group.substations) {
+        const hasSelected = substation.feeders.some(
+          f => String(f.feeder_id) === String(selectedFeederId)
+        );
+        if (hasSelected) {
+          setOpenDecoupages(prev => ({ ...prev, [group.decoupage]: true }));
+          setOpenSubstations(prev => ({ ...prev, [substation.id]: true }));
+          break;
         }
       }
     }
-  }, [data, selectedFeederId]);
+  }
+}, [data, selectedFeederId, mode]);
 
   const handleFeederClick = (feederId: string, feederName: string) => {
     router.push(`/distribution/${mode}/feeder/${feederId}?name=${encodeURIComponent(feederName)}`);
@@ -210,20 +233,13 @@ export function FeedersTree({ mode, selectedFeederId }: FeedersTreeProps) {
                           )}
                         >
                           <Zap className="h-3 w-3 text-blue-500 shrink-0" />
-<span className="truncate flex-1 text-left">
-  {feeder.feeder_name?.slice(4)}
-</span>
-                          {/* {feeder.assigned_agent_name && feeder.assigned_agent_id === user?.id && (
-                            <span className="text-[10px] text-green-600 flex items-center gap-0.5">
-                              <User className="h-2.5 w-2.5" />
-                              Moi
+                            <span className="truncate flex-1 text-left">
+                              {feeder.feeder_name?.slice(4)}
                             </span>
-                          )} */}
                           
                           {feeder.assigned_agent_name && feeder.assigned_agent_id !== user?.id && user?.role !== 'Admin' && user?.role !== 'Chef équipe' ? null : feeder.assigned_agent_name && user?.role === 'Admin' && (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                               <User className="h-2.5 w-2.5" />
-                              {/* {feeder.assigned_agent_name.split(' ')[0]} */}
                             </span>
                           )}
                         </button>
