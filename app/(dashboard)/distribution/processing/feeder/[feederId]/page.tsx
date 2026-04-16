@@ -10,7 +10,7 @@ import {
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
   Layers, Info, MapPin, Save, UserCheck, Filter,
   Play, Timer, User, RefreshCw,
-  Loader2, Search, History, Clock, ChevronUp
+  Loader2, Search, History, Clock, ChevronUp, ShieldAlert
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +60,7 @@ import {
   useValidateTreatment,
   useRejectTreatment,
 } from "@/hooks/use-treatment-service";
+import { usePreSaveCheck } from "@/hooks/use-compliance";
 
 // ─── Leaflet client-only ──────────────────────────────────────────────
 const FullscreenMap = dynamic(
@@ -134,6 +135,18 @@ const TABLE_NAME_MAP: Record<string, string> = {
   feeder: "feeders",
 };
 
+// Conversion inverse (PostgreSQL → Frontend)
+const INVERSE_TABLE_NAME_MAP: Record<string, string> = {
+  substations: "substation",
+  power_transformers: "powertransformer",
+  busbar: "bus_bar",
+  bay: "bay",
+  switch: "switch",
+  wire: "wire",
+  feeders: "feeder",
+};
+
+
 // ─── Icônes / labels par table ─────────────────────────────────────────
 const TABLE_ICONS: Record<string, React.ElementType> = {
   substation: Building2, powertransformer: Zap, bus_bar: Layers,
@@ -166,6 +179,52 @@ const fv = (v: unknown): string => {
   if (typeof v === "boolean") return v ? "Oui" : "Non";
   return String(v);
 };
+
+// ─── Modal erreurs de validation ──────────────────────────────────────
+function ValidationErrorModal({
+  isOpen,
+  onClose,
+  errors,
+  onForceSave,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  errors: string[];
+  onForceSave?: () => void;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-lg z-200">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <ShieldAlert className="h-5 w-5" />
+            Validation échouée
+          </DialogTitle>
+          <DialogDescription>
+            L'enregistrement ne peut pas être effectué. Corrigez les erreurs suivantes avant de sauvegarder.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 max-h-72 overflow-y-auto py-2">
+          {errors.map((err, idx) => (
+            <div key={idx} className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800">
+              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-red-700 dark:text-red-400">{err}</p>
+                
+                
+              </div>
+            </div>
+          ))}
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} className="flex-1 cursor-pointer">
+            Corriger les données
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ─── Badge anomalie ───────────────────────────────────────────────────
 function AnomalyBadge({ type }: { type: AnomalyType }) {
@@ -538,6 +597,10 @@ function OccurrenceEditCard({
   const [editedData, setEditedData] = useState<Record<string, any>>({ ...localRecord });
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+
+  const preSaveCheckMutation = usePreSaveCheck();
 
   const getPhotoUrl = (photo: any) => {
     if (!photo) return null;
@@ -570,6 +633,30 @@ function OccurrenceEditCard({
     return "false";
   };
 
+  const doSave = async (changedFields: string[]) => {
+    const sqlTableName = TABLE_NAME_MAP[equipmentTable] ?? equipmentTable;
+    await Promise.all(changedFields.map(field =>
+      updateAttributeMutation.mutateAsync({
+        feeder_id: feederId,
+        table_name: sqlTableName,
+        record_id: String(mrid),
+        attribute_name: field,
+        new_value: editedData[field],
+        changed_by: user.id,
+        changed_by_name: `${user.firstName} ${user.lastName}`,
+        comment: `Correction doublon occurrence #${index + 1}`,
+      })
+    ));
+    const updatedRecord = { ...localRecord };
+    changedFields.forEach(f => { updatedRecord[f] = editedData[f]; });
+    setLocalRecord(updatedRecord);
+    setEditedData({ ...updatedRecord });
+    toast.success(`Occurrence #${index + 1} — ${changedFields.length} champ(s) enregistré(s)`);
+    onSaveSuccess(mrid, updatedRecord);
+    refreshData();
+    if (onCloseModal) onCloseModal();
+  };
+
   const handleSave = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setIsSaving(true);
@@ -577,30 +664,22 @@ function OccurrenceEditCard({
       String(editedData[field]) !== String(localRecord[field])
     );
     if (changedFields.length === 0) { toast.info("Aucune modification"); setIsSaving(false); return; }
-    const sqlTableName = TABLE_NAME_MAP[equipmentTable] ?? equipmentTable;
+
+    const tableNameForApi = equipmentTable;
+    const payload: Record<string, unknown> = { m_rid: mrid };
+    changedFields.forEach(f => { payload[f] = editedData[f]; });
+
     try {
-      await Promise.all(changedFields.map(field =>
-        updateAttributeMutation.mutateAsync({
-          feeder_id: feederId,
-          table_name: sqlTableName,
-          record_id: String(mrid),
-          attribute_name: field,
-          new_value: editedData[field],
-          changed_by: user.id,
-          changed_by_name: `${user.firstName} ${user.lastName}`,
-          comment: `Correction doublon occurrence #${index + 1}`,
-        })
-      ));
-      const updatedRecord = { ...localRecord };
-      changedFields.forEach(f => { updatedRecord[f] = editedData[f]; });
-      setLocalRecord(updatedRecord);
-      setEditedData({ ...updatedRecord });
-      toast.success(`Occurrence #${index + 1} — ${changedFields.length} champ(s) enregistré(s)`);
-      onSaveSuccess(mrid, updatedRecord);
-      refreshData();
-      if (onCloseModal) onCloseModal();
+      const checkResult = await preSaveCheckMutation.mutateAsync({ tableName: tableNameForApi, payload });
+      if (!checkResult.can_save) {
+        setValidationErrors(checkResult.errors);
+        setShowValidationModal(true);
+        setIsSaving(false);
+        return;
+      }
+      await doSave(changedFields);
     } catch {
-      toast.error("Erreur lors de l'enregistrement");
+      toast.error("Erreur lors de la validation ou de l'enregistrement");
     }
     setIsSaving(false);
   };
@@ -608,146 +687,153 @@ function OccurrenceEditCard({
   const hasChanges = editableFields.some(f => String(editedData[f]) !== String(localRecord[f]));
 
   return (
-    <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden bg-purple-50/30 dark:bg-purple-950/10">
-      <div className="px-3 py-2.5 bg-purple-100/50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-purple-700 dark:text-purple-400">
-            Occurrence #{index + 1}
-          </span>
-          <span className="text-[10px] font-mono text-purple-600/70 break-all">{mrid}</span>
-        </div>
-        {hasChanges && (
-          <span className="text-[10px] text-amber-600 font-medium">● modifié</span>
-        )}
-      </div>
-
-      {photoUrl && (
-        <div className="px-3 pt-3">
-          <PhotoThumb src={photoUrl} alt={`Occurrence ${index + 1}`} />
-        </div>
-      )}
-
-      {(localRecord.latitude || localRecord.longitude) && (
-        <div className="px-3 pt-3">
-          <div className="p-2 rounded-lg bg-muted/30 flex items-center gap-2 text-xs">
-            <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="font-mono text-muted-foreground">
-              {localRecord.latitude ? parseFloat(String(localRecord.latitude)).toFixed(6) : "—"},{" "}
-              {localRecord.longitude ? parseFloat(String(localRecord.longitude)).toFixed(6) : "—"}
+    <>
+      <ValidationErrorModal
+        isOpen={showValidationModal}
+        onClose={() => setShowValidationModal(false)}
+        errors={validationErrors}
+      />
+      <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden bg-purple-50/30 dark:bg-purple-950/10">
+        <div className="px-3 py-2.5 bg-purple-100/50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-purple-700 dark:text-purple-400">
+              Occurrence #{index + 1}
             </span>
-            <span className="text-[10px] text-muted-foreground ml-auto">non modifiable</span>
+            <span className="text-[10px] font-mono text-purple-600/70 break-all">{mrid}</span>
           </div>
+          {hasChanges && (
+            <span className="text-[10px] text-amber-600 font-medium">● modifié</span>
+          )}
         </div>
-      )}
 
-      <div className="p-3 space-y-2">
-        {fieldsWithValue.map(field => {
-          const inputType = getFieldInputType(field);
-          const value = editedData[field];
-          const originalValue = localRecord[field];
-          const isModified = String(value) !== String(originalValue);
+        {photoUrl && (
+          <div className="px-3 pt-3">
+            <PhotoThumb src={photoUrl} alt={`Occurrence ${index + 1}`} />
+          </div>
+        )}
 
-          return (
-            <div key={field} className="space-y-1">
-              <div className="flex items-center justify-between">
-                <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
+        {(localRecord.latitude || localRecord.longitude) && (
+          <div className="px-3 pt-3">
+            <div className="p-2 rounded-lg bg-muted/30 flex items-center gap-2 text-xs">
+              <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="font-mono text-muted-foreground">
+                {localRecord.latitude ? parseFloat(String(localRecord.latitude)).toFixed(6) : "—"},{" "}
+                {localRecord.longitude ? parseFloat(String(localRecord.longitude)).toFixed(6) : "—"}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-auto">non modifiable</span>
+            </div>
+          </div>
+        )}
+
+        <div className="p-3 space-y-2">
+          {fieldsWithValue.map(field => {
+            const inputType = getFieldInputType(field);
+            const value = editedData[field];
+            const originalValue = localRecord[field];
+            const isModified = String(value) !== String(originalValue);
+
+            return (
+              <div key={field} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
+                  {isModified && canEdit && (
+                    <span className="text-[10px] text-amber-600">modifié</span>
+                  )}
+                </div>
+                {!canEdit ? (
+                  <div className="p-1.5 rounded bg-muted/20 text-xs font-mono">{fv(value)}</div>
+                ) : inputType === "select" ? (
+                  <Select
+                    value={getSelectValue(value)}
+                    onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
+                  >
+                    <SelectTrigger className="h-8 text-xs cursor-pointer">
+                      <SelectValue placeholder="Sélectionner" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                      <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type={inputType}
+                    value={String(value ?? "")}
+                    onChange={e => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
+                    className={cn("h-8 text-xs", isModified && "border-amber-500 focus-visible:ring-amber-500")}
+                  />
+                )}
                 {isModified && canEdit && (
-                  <span className="text-[10px] text-amber-600">modifié</span>
+                  <p className="text-[10px] text-muted-foreground">Ancienne valeur: {fv(originalValue)}</p>
                 )}
               </div>
-              {!canEdit ? (
-                <div className="p-1.5 rounded bg-muted/20 text-xs font-mono">{fv(value)}</div>
-              ) : inputType === "select" ? (
-                <Select 
-                  value={getSelectValue(value)} 
-                  onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
-                >
-                  <SelectTrigger className="h-8 text-xs cursor-pointer">
-                    <SelectValue placeholder="Sélectionner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
-                    <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  type={inputType}
-                  value={String(value ?? "")}
-                  onChange={e => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                  className={cn("h-8 text-xs", isModified && "border-amber-500 focus-visible:ring-amber-500")}
-                />
-              )}
-              {isModified && canEdit && (
-                <p className="text-[10px] text-muted-foreground">Ancienne valeur: {fv(originalValue)}</p>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {fieldsWithoutValue.length > 0 && (
-          <details className="pt-1">
-            <summary
-              className="text-[11px] text-purple-600 cursor-pointer hover:text-purple-800 select-none"
-              onClick={() => setIsExpanded(p => !p)}
+          {fieldsWithoutValue.length > 0 && (
+            <details className="pt-1">
+              <summary
+                className="text-[11px] text-purple-600 cursor-pointer hover:text-purple-800 select-none"
+                onClick={() => setIsExpanded(p => !p)}
+              >
+                {isExpanded ? "Masquer" : `+ ${fieldsWithoutValue.length} champ(s) vide(s)`}
+              </summary>
+              <div className="mt-2 space-y-2">
+                {fieldsWithoutValue.map(field => {
+                  const inputType = getFieldInputType(field);
+                  const value = editedData[field];
+                  return (
+                    <div key={field} className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
+                      {!canEdit ? (
+                        <div className="p-1.5 rounded bg-muted/20 text-xs font-mono text-muted-foreground">—</div>
+                      ) : inputType === "select" ? (
+                        <Select
+                          value={getSelectValue(value)}
+                          onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
+                        >
+                          <SelectTrigger className="h-8 text-xs cursor-pointer">
+                            <SelectValue placeholder="Non défini" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                            <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          type={inputType}
+                          value={String(value ?? "")}
+                          placeholder="—"
+                          onChange={e => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+        </div>
+
+        {canEdit && (
+          <div className="px-3 pb-3 border-t border-purple-200 dark:border-purple-800 pt-3">
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !hasChanges}
+              size="sm"
+              className="w-full cursor-pointer"
             >
-              {isExpanded ? "Masquer" : `+ ${fieldsWithoutValue.length} champ(s) vide(s)`}
-            </summary>
-            <div className="mt-2 space-y-2">
-              {fieldsWithoutValue.map(field => {
-                const inputType = getFieldInputType(field);
-                const value = editedData[field];
-                return (
-                  <div key={field} className="space-y-1">
-                    <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
-                    {!canEdit ? (
-                      <div className="p-1.5 rounded bg-muted/20 text-xs font-mono text-muted-foreground">—</div>
-                    ) : inputType === "select" ? (
-                      <Select 
-                        value={getSelectValue(value)} 
-                        onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
-                      >
-                        <SelectTrigger className="h-8 text-xs cursor-pointer">
-                          <SelectValue placeholder="Non défini" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
-                          <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        type={inputType}
-                        value={String(value ?? "")}
-                        placeholder="—"
-                        onChange={e => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                        className="h-8 text-xs"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </details>
+              {isSaving
+                ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Enregistrement...</>
+                : <><Save className="h-3.5 w-3.5 mr-2" />Enregistrer l'occurrence #{index + 1}</>
+              }
+            </Button>
+          </div>
         )}
       </div>
-
-      {canEdit && (
-        <div className="px-3 pb-3 border-t border-purple-200 dark:border-purple-800 pt-3">
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !hasChanges}
-            size="sm"
-            className="w-full cursor-pointer"
-          >
-            {isSaving
-              ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Enregistrement...</>
-              : <><Save className="h-3.5 w-3.5 mr-2" />Enregistrer l'occurrence #{index + 1}</>
-            }
-          </Button>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -767,6 +853,10 @@ function EquipmentDetailSheet({
   const [isSaving, setIsSaving] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+
+  const preSaveCheckMutation = usePreSaveCheck();
 
   const HIDDEN_FIELDS = new Set([
     "qrcode", "precision", "photo", "exploitattion_m_rid", "collected_date",
@@ -850,6 +940,30 @@ function EquipmentDetailSheet({
   const handleFieldChange = (field: string, value: string | number | boolean) =>
     setEditedData((prev) => ({ ...prev, [field]: value }));
 
+  const doSave = async (changedFields: string[]) => {
+    const sqlTableName = TABLE_NAME_MAP[equipment.table] ?? equipment.table;
+    await Promise.all(changedFields.map(field =>
+      updateAttributeMutation.mutateAsync({
+        feeder_id: feederId,
+        table_name: sqlTableName,
+        record_id: String(equipment.mrid),
+        attribute_name: field,
+        new_value: editedData[field],
+        changed_by: user.id,
+        changed_by_name: `${user.firstName} ${user.lastName}`,
+        comment: `Modification depuis l'interface de traitement`,
+      })
+    ));
+    const updatedData = { ...localData };
+    changedFields.forEach(f => { updatedData[f] = editedData[f]; });
+    setLocalData(updatedData);
+    setEditedData({ ...updatedData });
+    toast.success(`${changedFields.length} champ(s) modifié(s) avec succès`);
+    onSave(equipment, updatedData);
+    refreshData();
+    onClose();
+  };
+
   const handleSave = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setIsSaving(true);
@@ -857,30 +971,33 @@ function EquipmentDetailSheet({
       key => String(editedData[key]) !== String(localData[key]) && key !== "_anomalyType" && key !== "photo"
     );
     if (changedFields.length === 0) { toast.info("Aucune modification détectée"); setIsSaving(false); return; }
-    const sqlTableName = TABLE_NAME_MAP[equipment.table] ?? equipment.table;
+
+
+const tableNameMapForPreSave: Record<string, string> = {
+  substations: "substation",
+  power_transformers: "powertransformer",
+  busbar: "bus_bar",
+  feeders: "feeder",
+  bay: "bay",
+  switch: "switch",
+  wire: "wire",
+};
+
+const tableNameForApi = tableNameMapForPreSave[equipment.table] ?? equipment.table;
+    const payload: Record<string, unknown> = { m_rid: equipment.mrid };
+    changedFields.forEach(f => { payload[f] = editedData[f]; });
+
     try {
-      await Promise.all(changedFields.map(field =>
-        updateAttributeMutation.mutateAsync({
-          feeder_id: feederId,
-          table_name: sqlTableName,
-          record_id: String(equipment.mrid),
-          attribute_name: field,
-          new_value: editedData[field],
-          changed_by: user.id,
-          changed_by_name: `${user.firstName} ${user.lastName}`,
-          comment: `Modification depuis l'interface de traitement`,
-        })
-      ));
-      const updatedData = { ...localData };
-      changedFields.forEach(f => { updatedData[f] = editedData[f]; });
-      setLocalData(updatedData);
-      setEditedData({ ...updatedData });
-      toast.success(`${changedFields.length} champ(s) modifié(s) avec succès`);
-      onSave(equipment, updatedData);
-      refreshData();
-      onClose(); // Ferme le modal après l'enregistrement
+      const checkResult = await preSaveCheckMutation.mutateAsync({ tableName: tableNameForApi, payload });
+      if (!checkResult.can_save) {
+        setValidationErrors(checkResult.errors);
+        setShowValidationModal(true);
+        setIsSaving(false);
+        return;
+      }
+      await doSave(changedFields);
     } catch {
-      toast.error("Erreur lors de la modification");
+      toast.error("Erreur lors de la validation ou de l'enregistrement");
     }
     setIsSaving(false);
   };
@@ -891,6 +1008,12 @@ function EquipmentDetailSheet({
 
   return (
     <>
+      <ValidationErrorModal
+        isOpen={showValidationModal}
+        onClose={() => setShowValidationModal(false)}
+        errors={validationErrors}
+      />
+
       <Sheet open={isOpen} onOpenChange={onClose}>
         <SheetContent side="right" className={cn(sheetWidthClass, "flex flex-col p-0 overflow-hidden")}>
           <SheetHeader className="px-5 py-4 border-b shrink-0">
@@ -965,12 +1088,12 @@ function EquipmentDetailSheet({
                   .filter(a => a.type === "divergence" && a.divergent_fields)
                   .flatMap(a => a.divergent_fields || [])
                   .map((field, idx) => {
-                    const currentValue = editedData[field.field] !== undefined 
-                      ? editedData[field.field] 
+                    const currentValue = editedData[field.field] !== undefined
+                      ? editedData[field.field]
                       : field.collected_value;
                     const isModified = String(currentValue) !== String(localData[field.field]);
                     const inputType = getFieldInputType(field.field);
-                    
+
                     return (
                       <div key={idx} className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
                         <div className="flex items-center justify-between mb-2">
@@ -988,8 +1111,8 @@ function EquipmentDetailSheet({
                           <div>
                             <p className="text-muted-foreground mb-1">Nouvelle valeur</p>
                             {inputType === "select" ? (
-                              <Select 
-                                value={getSelectValue(currentValue)} 
+                              <Select
+                                value={getSelectValue(currentValue)}
                                 onValueChange={(v) => handleFieldChange(field.field, v === "true" ? 1 : 0)}
                               >
                                 <SelectTrigger className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}>
@@ -1001,10 +1124,10 @@ function EquipmentDetailSheet({
                                 </SelectContent>
                               </Select>
                             ) : (
-                              <Input 
+                              <Input
                                 type={inputType}
-                                value={String(currentValue ?? "")} 
-                                onChange={(e) => handleFieldChange(field.field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)} 
+                                value={String(currentValue ?? "")}
+                                onChange={(e) => handleFieldChange(field.field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
                                 className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}
                               />
                             )}
@@ -1090,8 +1213,8 @@ function EquipmentDetailSheet({
                       {isDisabled ? (
                         <div className="p-2 rounded-md bg-muted/20 text-sm font-mono">{fv(value)}</div>
                       ) : inputType === "select" ? (
-                        <Select 
-                          value={getSelectValue(value)} 
+                        <Select
+                          value={getSelectValue(value)}
                           onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
                         >
                           <SelectTrigger className="h-9 text-sm cursor-pointer">
@@ -1818,6 +1941,8 @@ export default function FeederProcessingPage() {
   const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [recentEdits, setRecentEdits] = useState<RecentEdit[]>([]);
+  // État pour l'icône d'actualisation qui tourne
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const feederStatus = treatmentStatus?.status || "collecting";
   const assignedAgentId = treatmentStatus?.assigned_to;
@@ -1858,10 +1983,15 @@ export default function FeederProcessingPage() {
     loadRecentEditsFromStorage();
   }, [loadRecentEditsFromStorage]);
 
-  const refreshAllData = useCallback(() => {
-    refresh();
-    refetchStatus();
-    refetchUsers();
+  // Actualisation avec animation sur l'icône uniquement (pas de masquage de l'écran)
+  const refreshAllData = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([refresh(), refetchStatus(), refetchUsers()]);
+    } finally {
+      // Durée minimale d'animation pour que ce soit visible
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
   }, [refresh, refetchStatus, refetchUsers]);
 
   useEffect(() => {
@@ -2020,20 +2150,23 @@ export default function FeederProcessingPage() {
     });
   };
 
+  // Mise à jour modifications récentes pour TOUS les types d'équipements
   const handleEquipmentSave = useCallback((equipment: EquipmentDetail, updatedData: Record<string, unknown>) => {
     const changedFields = Object.keys(updatedData).filter(
       key => String(updatedData[key]) !== String(equipment.data[key]) && key !== "_anomalyType" && key !== "photo"
     );
-    if (changedFields.length === 0) return;
+    // On enregistre dans les modifs récentes même si changedFields est vide (l'API a confirmé la save)
+    // mais on filtre quand même les champs internes
+    const fieldsToLog = changedFields.length > 0 ? changedFields : Object.keys(updatedData).filter(k => k !== "_anomalyType" && k !== "photo");
 
     setRecentEdits(prev => {
-      const filtered = prev.filter(e => e.mrid !== equipment.mrid);
+      const filtered = prev.filter(e => String(e.mrid) !== String(equipment.mrid));
       const newEdits = [{
         mrid: equipment.mrid,
         name: equipment.name,
         table: equipment.table,
         editedAt: Date.now(),
-        fieldsChanged: changedFields,
+        fieldsChanged: fieldsToLog,
         equipment: { ...equipment, data: { ...equipment.data, ...updatedData } },
       }, ...filtered].slice(0, 10);
       saveRecentEditsToStorage(newEdits);
@@ -2073,21 +2206,19 @@ export default function FeederProcessingPage() {
     if (feederStatus === "collecting") {
       return (
         <Button onClick={handleCompleteCollection} className="gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700" disabled={setPendingMutation.isPending}>
-          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : feederStatus === "collecting" ? <Check className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          {feederStatus === "collecting" ? "Terminer la collecte" : "Remettre en validation"}
+          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+          Terminer la collecte
         </Button>
       );
     }
     if (feederStatus === "validated" || feederStatus === "rejected") {
       return (
         <Button onClick={handleCompleteTreatment} className="gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700" disabled={setPendingMutation.isPending}>
-          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> :  <RefreshCw className="h-4 w-4 mr-2" />}
+          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           Remettre en validation
         </Button>
       );
     }
-
-    
     if (feederStatus === "pending") {
       return (
         <div className="flex flex-col gap-2 w-full sm:w-auto">
@@ -2224,14 +2355,17 @@ export default function FeederProcessingPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
+            {/* Bouton actualiser : seule l'icône tourne, pas de masquage de page */}
             <button
               onClick={refreshAllData}
-              className="flex items-center gap-1 text-sm px-3 py-1 rounded border hover:bg-muted disabled:opacity-50"
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 text-sm px-3 py-1 rounded border hover:bg-muted disabled:opacity-60 transition-opacity"
             >
-              <RefreshCw className="h-3.5 w-3.5" /> Actualiser
+              <RefreshCw className={cn("h-3.5 w-3.5 transition-transform", isRefreshing && "animate-spin")} />
+              Actualiser
             </button>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap mt-1">
             <Zap className="h-5 w-5 text-primary shrink-0" />
             <h1 className="text-base sm:text-lg font-bold truncate">{feederName}</h1>
             {getStatusBadge()}

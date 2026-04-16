@@ -2235,18 +2235,27 @@ export default function FeederProcessingPage() {
             <Zap className="h-5 w-5 text-primary shrink-0" />
             <h1 className="text-base sm:text-lg font-bold truncate">{feederName}</h1>
             {getStatusBadge()}
-            {durationSeconds && feederStatus === "pending_validation" && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
-                <Timer className="h-3 w-3" /><span>{formatDuration(durationSeconds)}</span>
-              </div>
-            )}
-            {assignedAgentName && feederStatus !== "collecting" && feederStatus !== "pending" && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
-                <User className="h-3 w-3" />
-                <span className="hidden sm:inline">Assigné à: </span>
-                <span className="font-medium text-foreground">{assignedAgentName}</span>
-              </div>
-            )}
+{assignedAgentName && feederStatus !== "collecting" && feederStatus !== "pending" && (
+  <div className="flex flex-col gap-1">
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
+      <User className="h-3 w-3" />
+      <span className="hidden sm:inline">Assigné à: </span>
+      <span className="font-medium text-foreground">{assignedAgentName}</span>
+    </div>
+
+  </div>
+)}
+{feederStatus == "validated" || feederStatus !== "rejected" ? (
+<>
+    {treatmentStatus?.validated_by_name && (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-emerald-500/10 px-2 py-1 rounded-full">
+        <UserCheck className="h-3 w-3 text-emerald-600" />
+        <span className="hidden sm:inline"> {feederStatus == "validated"?"Validé par:":"Réjété par:"} </span>
+        <span className="font-medium text-emerald-700">{treatmentStatus.validated_by_name}</span>
+      </div>
+    )}</>
+  ):(<></>)}
+  
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             Traitement · <span className="font-medium text-foreground">{counts.all}</span> anomalie{counts.all > 1 ? "s" : ""}
