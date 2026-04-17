@@ -32,6 +32,7 @@ export interface DashboardStats {
   totalTasks: number;
 collecting: number;        // En cours de collecte
   pending: number;           // En attente de traitement
+  assigned: number;          // Assignés 
   inProgress: number;        // En cours de traitement
   pendingValidation: number; // En attente validation (Traités)
   validated: number;

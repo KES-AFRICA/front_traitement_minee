@@ -98,6 +98,10 @@ export default function DashboardPage() {
   const totalValidated = stats?.validated || 0;
   const totalRejected = stats?.rejected || 0;
   const totalTasks = stats?.totalTasks || 0;
+  const inpro = stats?.inProgress || 0 ;
+  const inpen = stats?.pending || 0 ;
+  const assigned = stats?.assigned || 0 ;
+  const totalTraited = inpro + inpen + assigned;
 
   return (
     <div className="w-full min-w-0 space-y-4 md:px-4 md:py-4 sm:px-6 sm:space-y-6">
@@ -149,7 +153,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="En traitement"
-          value={isDataLoading ? "-" : stats?.inProgress?.toLocaleString() || "0"}
+          value={isDataLoading ? "-" : totalTraited.toLocaleString() || "0"}
           description="En attente traitement"
           icon={Loader2}
           variant="warning"
