@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
@@ -1389,9 +1390,11 @@ function BayItem({ bayAnomaly, switches, filter, treatment, onFieldChange, onMar
   const Icon = TABLE_ICONS["bay"] || Box;
   const bayName = bayAnomaly.name || bayAnomaly.mrid;
 
+  // Tri alphabétique des switches
   const filteredSwitches = useMemo(() => {
-    if (filter === "all") return switches;
-    return switches.filter(s => s.type === filter);
+    if (filter === "all") return [...switches].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const filtered = switches.filter(s => s.type === filter);
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [switches, filter]);
 
   if (filter !== "all" && bayAnomaly.type !== filter && filteredSwitches.length === 0) return null;
@@ -1412,27 +1415,37 @@ function BayItem({ bayAnomaly, switches, filter, treatment, onFieldChange, onMar
         <span className="font-medium text-xs flex-1 truncate">{bayName}</span>
         <AnomalyBadge type={dominantCfg.type as AnomalyType} />
       </button>
-      {isOpen && (
-        <div className="pl-6 pr-3 py-2 space-y-2 border-t border-border/30">
-          {(filter === "all" || bayAnomaly.type === filter) && (
-            <AnomalyCard anomaly={bayAnomaly} treatment={treatment} onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-          )}
-          {filteredSwitches.length > 0 && (
-            <div className="space-y-2 ml-2">
-              {filteredSwitches.map(switchAnomaly => (
-                <SwitchItem key={switchAnomaly.id} switchAnomaly={switchAnomaly} treatment={treatment}
-                  onFieldChange={onFieldChange} onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick}
-                  isClickable={isClickable} canProcess={canProcess} />
-              ))}
+      
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="pl-6 pr-3 py-2 space-y-2 border-t border-border/30">
+              {(filter === "all" || bayAnomaly.type === filter) && (
+                <AnomalyCard anomaly={bayAnomaly} treatment={treatment} onFieldChange={onFieldChange}
+                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+              )}
+              {filteredSwitches.length > 0 && (
+                <div className="space-y-2 ml-2">
+                  {filteredSwitches.map(switchAnomaly => (
+                    <SwitchItem key={switchAnomaly.id} switchAnomaly={switchAnomaly} treatment={treatment}
+                      onFieldChange={onFieldChange} onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick}
+                      isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-
 // ─── SubstationItem ────────────────────────────────────────────────────
 function SubstationItem({ substationAnomaly, bays, transformers, busbars, switchesByBay, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
   substationAnomaly: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[];
@@ -1445,17 +1458,28 @@ function SubstationItem({ substationAnomaly, bays, transformers, busbars, switch
   const Icon = TABLE_ICONS["substation"] || Building2;
   const substationName = substationAnomaly.name || substationAnomaly.mrid;
 
+  // Tri alphabétique des bays
   const filteredBays = useMemo(() => {
-    if (filter === "all") return bays;
-    return bays.filter(b => {
+    if (filter === "all") return [...bays].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const filtered = bays.filter(b => {
       if (b.type === filter) return true;
       const baySwitches = switchesByBay.get(b.mrid) || [];
       return baySwitches.some(s => s.type === filter);
     });
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [bays, filter, switchesByBay]);
 
-  const filteredTransformers = useMemo(() => filter === "all" ? transformers : transformers.filter(t => t.type === filter), [transformers, filter]);
-  const filteredBusbars = useMemo(() => filter === "all" ? busbars : busbars.filter(b => b.type === filter), [busbars, filter]);
+  // Tri alphabétique des transformateurs
+  const filteredTransformers = useMemo(() => {
+    const filtered = filter === "all" ? transformers : transformers.filter(t => t.type === filter);
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [transformers, filter]);
+
+  // Tri alphabétique des busbars
+  const filteredBusbars = useMemo(() => {
+    const filtered = filter === "all" ? busbars : busbars.filter(b => b.type === filter);
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [busbars, filter]);
 
   const hasChildren = filteredBays.length > 0 || filteredTransformers.length > 0 || filteredBusbars.length > 0;
   const substationMatchesFilter = filter === "all" || substationAnomaly.type === filter;
@@ -1485,45 +1509,56 @@ function SubstationItem({ substationAnomaly, bays, transformers, busbars, switch
         </div>
         <AnomalyBadge type={dominantCfg.type as AnomalyType} />
       </button>
-      {isOpen && (
-        <div className="p-3 space-y-3 border-t border-border/40">
-          {substationMatchesFilter && (
-            <AnomalyCard anomaly={substationAnomaly} treatment={treatment} onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-          )}
-          {filteredTransformers.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground pl-2">Transformateurs</div>
-              {filteredTransformers.map(transformer => (
-                <AnomalyCard key={transformer.id} anomaly={transformer} treatment={treatment} onFieldChange={onFieldChange}
+      
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 space-y-3 border-t border-border/40">
+              {substationMatchesFilter && (
+                <AnomalyCard anomaly={substationAnomaly} treatment={treatment} onFieldChange={onFieldChange}
                   onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              ))}
+              )}
+              {filteredTransformers.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground pl-2">Transformateurs</div>
+                  {filteredTransformers.map(transformer => (
+                    <AnomalyCard key={transformer.id} anomaly={transformer} treatment={treatment} onFieldChange={onFieldChange}
+                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
+              {filteredBusbars.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground pl-2">Bus Bars</div>
+                  {filteredBusbars.map(busbar => (
+                    <AnomalyCard key={busbar.id} anomaly={busbar} treatment={treatment} onFieldChange={onFieldChange}
+                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
+              {filteredBays.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground pl-2">Cellules</div>
+                  <div className="space-y-2">
+                    {filteredBays.map(bay => {
+                      const baySwitches = switchesByBay.get(bay.mrid) || [];
+                      return <BayItem key={bay.id} bayAnomaly={bay} switches={baySwitches} filter={filter}
+                        treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
+                        onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />;
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          {filteredBusbars.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground pl-2">Bus Bars</div>
-              {filteredBusbars.map(busbar => (
-                <AnomalyCard key={busbar.id} anomaly={busbar} treatment={treatment} onFieldChange={onFieldChange}
-                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              ))}
-            </div>
-          )}
-          {filteredBays.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground pl-2">Cellules</div>
-              <div className="space-y-2">
-                {filteredBays.map(bay => {
-                  const baySwitches = switchesByBay.get(bay.mrid) || [];
-                  return <BayItem key={bay.id} bayAnomaly={bay} switches={baySwitches} filter={filter}
-                    treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
-                    onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />;
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1538,6 +1573,13 @@ function SubstationsRootGroup({ substationsList, switchesByBay, filter, treatmen
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const substationsWithIssues = substationsList.filter(s => s.substation.type !== "ok").length;
+
+  // Trier les postes par nom alphabétique
+  const sortedSubstationsList = useMemo(() => {
+    return [...substationsList].sort((a, b) => 
+      (a.substation.name || "").localeCompare(b.substation.name || "")
+    );
+  }, [substationsList]);
 
   // ── Dominance couleur ──
   const allItems = substationsList.flatMap(s => {
@@ -1566,16 +1608,27 @@ function SubstationsRootGroup({ substationsList, switchesByBay, filter, treatmen
           <span className="text-[10px] text-muted-foreground">{substationsList.length} poste{substationsList.length > 1 ? "s" : ""}</span>
         </div>
       </button>
-      {isOpen && (
-        <div className="p-3 space-y-3 border-t border-border/40">
-          {substationsList.map((item) => (
-            <SubstationItem key={item.substation.id} substationAnomaly={item.substation} bays={item.bays}
-              transformers={item.transformers} busbars={item.busbars} switchesByBay={switchesByBay}
-              filter={filter} treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
-              onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-          ))}
-        </div>
-      )}
+      
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 space-y-3 border-t border-border/40">
+              {sortedSubstationsList.map((item) => (
+                <SubstationItem key={item.substation.id} substationAnomaly={item.substation} bays={item.bays}
+                  transformers={item.transformers} busbars={item.busbars} switchesByBay={switchesByBay}
+                  filter={filter} treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
+                  onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
