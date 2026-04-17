@@ -6,6 +6,54 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchWiresMap, fetchWireDetail } from "@/lib/api/services/koboService";
 import { WiresMapResponse, WireDetail } from "@/lib/types/kobo";
 
+// ── Constantes cache ──────────────────────────────────────────────────────────
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 heures
+
+const CACHE_KEYS = {
+  postesMap:  "kobo_cache_postes_map",
+  wiresMap:   "kobo_cache_wires_map",
+  posteDetail: (id: string) => `kobo_cache_poste_${id}`,
+  wireDetail:  (id: number) => `kobo_cache_wire_${id}`,
+};
+
+// ── Helpers cache localStorage ────────────────────────────────────────────────
+interface CacheEntry<T> {
+  data:      T;
+  expiresAt: number;
+}
+
+function cacheGet<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const entry: CacheEntry<T> = JSON.parse(raw);
+    if (Date.now() > entry.expiresAt) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return entry.data;
+  } catch {
+    return null;
+  }
+}
+
+function cacheSet<T>(key: string, data: T): void {
+  try {
+    const entry: CacheEntry<T> = {
+      data,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    };
+    localStorage.setItem(key, JSON.stringify(entry));
+  } catch {
+    // localStorage plein ou indisponible → on ignore silencieusement
+  }
+}
+
+function cacheClear(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch { /* ignore */ }
+}
 
 // ── État générique asynchrone ─────────────────────────────────────────────────
 interface AsyncState<T> {
@@ -16,8 +64,7 @@ interface AsyncState<T> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook 1 : usePostesMap
-// Charge une seule fois la liste des postes géolocalisés.
-// Expose aussi un `refresh()` pour forcer un rechargement.
+// Cache localStorage 24h. refresh() force le rechargement (bouton urgence).
 // ─────────────────────────────────────────────────────────────────────────────
 export function usePostesMap() {
   const [state, setState] = useState<AsyncState<PostesMapResponse>>({
@@ -26,10 +73,21 @@ export function usePostesMap() {
     error:   null,
   });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setState(prev => ({ ...prev, loading: true, error: null }));
+
+    // Cache hit (sauf si force)
+    if (!force) {
+      const cached = cacheGet<PostesMapResponse>(CACHE_KEYS.postesMap);
+      if (cached) {
+        setState({ data: cached, loading: false, error: null });
+        return;
+      }
+    }
+
     try {
       const data = await fetchPostesMap();
+      cacheSet(CACHE_KEYS.postesMap, data);
       setState({ data, loading: false, error: null });
     } catch (err) {
       setState({
@@ -41,7 +99,13 @@ export function usePostesMap() {
   }, []);
 
   useEffect(() => {
-    load();
+    load(false);
+  }, [load]);
+
+  // refresh() = bouton urgence → force=true, invalide le cache
+  const refresh = useCallback(() => {
+    cacheClear(CACHE_KEYS.postesMap);
+    load(true);
   }, [load]);
 
   return {
@@ -49,15 +113,13 @@ export function usePostesMap() {
     count:   state.data?.count  ?? 0,
     loading: state.loading,
     error:   state.error,
-    refresh: load,
+    refresh,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook 2 : usePosteDetail
-// Charge le détail d'un poste à la demande.
-// substationId peut être null/undefined → ne fait rien.
-// Évite les doubles appels si le même ID est demandé successivement.
+// Cache localStorage 24h par substationId.
 // ─────────────────────────────────────────────────────────────────────────────
 export function usePosteDetail(substationId: string | null | undefined) {
   const [state, setState] = useState<AsyncState<PosteDetail>>({
@@ -66,10 +128,7 @@ export function usePosteDetail(substationId: string | null | undefined) {
     error:   null,
   });
 
-  // Éviter les appels obsolètes si le composant est démonté
   const abortRef = useRef<AbortController | null>(null);
-  // Cache simple en mémoire pour éviter un re-fetch inutile
-  const cacheRef = useRef<Map<string, PosteDetail>>(new Map());
 
   useEffect(() => {
     if (!substationId) {
@@ -77,14 +136,12 @@ export function usePosteDetail(substationId: string | null | undefined) {
       return;
     }
 
-    // Déjà en cache → pas de requête
-    const cached = cacheRef.current.get(substationId);
+    const cached = cacheGet<PosteDetail>(CACHE_KEYS.posteDetail(substationId));
     if (cached) {
       setState({ data: cached, loading: false, error: null });
       return;
     }
 
-    // Annuler l'éventuelle requête précédente
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
@@ -92,11 +149,10 @@ export function usePosteDetail(substationId: string | null | undefined) {
 
     fetchPosteDetail(substationId)
       .then(data => {
-        cacheRef.current.set(substationId, data);
+        cacheSet(CACHE_KEYS.posteDetail(substationId), data);
         setState({ data, loading: false, error: null });
       })
       .catch(err => {
-        // Ignorer les erreurs d'annulation
         if (err instanceof Error && err.name === "AbortError") return;
         setState({
           data:    null,
@@ -119,8 +175,7 @@ export function usePosteDetail(substationId: string | null | undefined) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook 3 : usePosteDetailLazy
-// Variante impérative : ne charge que quand on appelle `fetch(id)`.
-// Utile pour un clic sur la carte → ouvrir un panneau de détail.
+// Cache localStorage 24h. fetch() vérifie le cache avant de requêter.
 // ─────────────────────────────────────────────────────────────────────────────
 export function usePosteDetailLazy() {
   const [state, setState] = useState<AsyncState<PosteDetail>>({
@@ -129,12 +184,10 @@ export function usePosteDetailLazy() {
     error:   null,
   });
 
-  const cacheRef = useRef<Map<string, PosteDetail>>(new Map());
-
   const fetch = useCallback(async (substationId: string) => {
     if (!substationId) return;
 
-    const cached = cacheRef.current.get(substationId);
+    const cached = cacheGet<PosteDetail>(CACHE_KEYS.posteDetail(substationId));
     if (cached) {
       setState({ data: cached, loading: false, error: null });
       return;
@@ -143,7 +196,7 @@ export function usePosteDetailLazy() {
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
       const data = await fetchPosteDetail(substationId);
-      cacheRef.current.set(substationId, data);
+      cacheSet(CACHE_KEYS.posteDetail(substationId), data);
       setState({ data, loading: false, error: null });
     } catch (err) {
       setState({
@@ -169,8 +222,7 @@ export function usePosteDetailLazy() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook 4 : useWiresMap
-// Charge une seule fois la liste des wires géolocalisés.
-// Expose aussi un `refresh()` pour forcer un rechargement.
+// Cache localStorage 24h. refresh() force le rechargement (bouton urgence).
 // ─────────────────────────────────────────────────────────────────────────────
 export function useWiresMap() {
   const [state, setState] = useState<AsyncState<WiresMapResponse>>({
@@ -179,10 +231,20 @@ export function useWiresMap() {
     error:   null,
   });
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setState(prev => ({ ...prev, loading: true, error: null }));
+
+    if (!force) {
+      const cached = cacheGet<WiresMapResponse>(CACHE_KEYS.wiresMap);
+      if (cached) {
+        setState({ data: cached, loading: false, error: null });
+        return;
+      }
+    }
+
     try {
       const data = await fetchWiresMap();
+      cacheSet(CACHE_KEYS.wiresMap, data);
       setState({ data, loading: false, error: null });
     } catch (err) {
       setState({
@@ -194,7 +256,12 @@ export function useWiresMap() {
   }, []);
 
   useEffect(() => {
-    load();
+    load(false);
+  }, [load]);
+
+  const refresh = useCallback(() => {
+    cacheClear(CACHE_KEYS.wiresMap);
+    load(true);
   }, [load]);
 
   return {
@@ -202,15 +269,13 @@ export function useWiresMap() {
     count:   state.data?.count  ?? 0,
     loading: state.loading,
     error:   state.error,
-    refresh: load,
+    refresh,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook 5 : useWireDetail
-// Charge le détail d'un wire à la demande.
-// wireId peut être null/undefined → ne fait rien.
-// Évite les doubles appels si le même ID est demandé successivement.
+// Cache localStorage 24h par wireId.
 // ─────────────────────────────────────────────────────────────────────────────
 export function useWireDetail(wireId: number | null | undefined) {
   const [state, setState] = useState<AsyncState<WireDetail>>({
@@ -220,7 +285,6 @@ export function useWireDetail(wireId: number | null | undefined) {
   });
 
   const abortRef = useRef<AbortController | null>(null);
-  const cacheRef = useRef<Map<number, WireDetail>>(new Map());
 
   useEffect(() => {
     if (!wireId) {
@@ -228,7 +292,7 @@ export function useWireDetail(wireId: number | null | undefined) {
       return;
     }
 
-    const cached = cacheRef.current.get(wireId);
+    const cached = cacheGet<WireDetail>(CACHE_KEYS.wireDetail(wireId));
     if (cached) {
       setState({ data: cached, loading: false, error: null });
       return;
@@ -241,7 +305,7 @@ export function useWireDetail(wireId: number | null | undefined) {
 
     fetchWireDetail(wireId)
       .then(data => {
-        cacheRef.current.set(wireId, data);
+        cacheSet(CACHE_KEYS.wireDetail(wireId), data);
         setState({ data, loading: false, error: null });
       })
       .catch(err => {
@@ -267,8 +331,7 @@ export function useWireDetail(wireId: number | null | undefined) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hook 6 : useWireDetailLazy
-// Variante impérative : ne charge que quand on appelle `fetch(id)`.
-// Utile pour un clic sur la carte → ouvrir un panneau de détail.
+// Cache localStorage 24h. fetch() vérifie le cache avant de requêter.
 // ─────────────────────────────────────────────────────────────────────────────
 export function useWireDetailLazy() {
   const [state, setState] = useState<AsyncState<WireDetail>>({
@@ -277,12 +340,10 @@ export function useWireDetailLazy() {
     error:   null,
   });
 
-  const cacheRef = useRef<Map<number, WireDetail>>(new Map());
-
   const fetch = useCallback(async (wireId: number) => {
     if (!wireId) return;
 
-    const cached = cacheRef.current.get(wireId);
+    const cached = cacheGet<WireDetail>(CACHE_KEYS.wireDetail(wireId));
     if (cached) {
       setState({ data: cached, loading: false, error: null });
       return;
@@ -291,7 +352,7 @@ export function useWireDetailLazy() {
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
       const data = await fetchWireDetail(wireId);
-      cacheRef.current.set(wireId, data);
+      cacheSet(CACHE_KEYS.wireDetail(wireId), data);
       setState({ data, loading: false, error: null });
     } catch (err) {
       setState({

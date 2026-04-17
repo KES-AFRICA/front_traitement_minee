@@ -24,7 +24,6 @@ import {
 import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
 
 import { usePostesMap, useWiresMap, usePosteDetailLazy, useWireDetailLazy } from "@/hooks/useKobo";
 import { buildPhotoUrl } from "@/lib/api/services/koboService";
