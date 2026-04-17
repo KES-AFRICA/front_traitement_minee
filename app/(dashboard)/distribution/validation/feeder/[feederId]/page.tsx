@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
@@ -10,7 +11,8 @@ import {
   X, Check, Zap, Building2, Cable, Box, ToggleLeft,
   Layers, Info, MapPin, Save, UserCheck, Filter,
   Play, Timer, User, RefreshCw,
-  Loader2, Search, History, Clock, ChevronUp
+  Loader2, Search, History, Clock, ChevronUp, ShieldAlert, Trash2,
+  DatabaseZap,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,7 +61,16 @@ import {
   useSetPendingValidation,
   useValidateTreatment,
   useRejectTreatment,
+  useHideRecord,
+  useInsertFeeder,
+  useInsertSubstation,
+  useInsertWire,
+  useInsertBay,
+  useInsertPowerTransformer,
+  useInsertSwitch,
+  useInsertBusbar,
 } from "@/hooks/use-treatment-service";
+import { usePreSaveCheck } from "@/hooks/use-compliance";
 
 // ─── Leaflet client-only ──────────────────────────────────────────────
 const FullscreenMap = dynamic(
@@ -123,6 +134,21 @@ const KPI_CONFIG = [
   { type: "complex" as const, label: "Complexes", icon: AlertCircle, color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", activeBg: "bg-red-500/15", activeBorder: "border-red-500/50" },
 ] as const;
 
+// ─── Dominance couleur anomalie ───────────────────────────────────────
+const ANOMALY_PRIORITY: AnomalyType[] = ["complex", "duplicate", "divergence", "missing", "new", "ok"];
+
+function getDominantAnomalyConfig(anomalies: AnomalyItem[]) {
+  if (anomalies.length === 0) return KPI_CONFIG.find(k => k.type === "ok")!;
+  const counts = {} as Record<AnomalyType, number>;
+  for (const a of anomalies) counts[a.type] = (counts[a.type] || 0) + 1;
+  for (const priority of ANOMALY_PRIORITY) {
+    if (counts[priority] && counts[priority] > 0) {
+      return KPI_CONFIG.find(k => k.type === priority)!;
+    }
+  }
+  return KPI_CONFIG.find(k => k.type === "ok")!;
+}
+
 // ─── Mapping noms frontend → noms tables PostgreSQL ───────────────────
 const TABLE_NAME_MAP: Record<string, string> = {
   powertransformer: "power_transformers",
@@ -167,6 +193,123 @@ const fv = (v: unknown): string => {
   return String(v);
 };
 
+// ─── Modal de confirmation suppression doublon ─────────────────────────
+function DeleteDuplicateConfirmModal({
+  isOpen, onClose, onConfirm, occurrenceName, isLoading,
+}: {
+  isOpen: boolean; onClose: () => void; onConfirm: () => void;
+  occurrenceName: string; isLoading: boolean;
+}) {
+  const [countdown, setCountdown] = useState(10);
+  const [isConfirmEnabled, setIsConfirmEnabled] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setCountdown(10);
+      setIsConfirmEnabled(false);
+      const interval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) { clearInterval(interval); setIsConfirmEnabled(true); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen]);
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <Trash2 className="h-5 w-5" />Supprimer le doublon
+          </DialogTitle>
+          <DialogDescription>
+            Cette action est <strong className="text-red-600">IRRÉVERSIBLE</strong>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800">
+            <p className="text-sm text-red-700 dark:text-red-400">Vous êtes sur le point de supprimer l'occurrence :</p>
+            <p className="text-sm font-mono font-medium mt-1 break-all">{occurrenceName}</p>
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isLoading} className="cursor-pointer">Annuler</Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={!isConfirmEnabled || isLoading} className="cursor-pointer">
+            {isLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suppression...</>
+              : isConfirmEnabled ? <><Trash2 className="h-4 w-4 mr-2" />Confirmer la suppression</>
+              : <><Timer className="h-4 w-4 mr-2" />Attendre {countdown}s</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Modal confirmation finale ─────────────────────────────────────────
+function FinalConfirmModal({
+  isOpen, onClose, onConfirm, isLoading,
+}: {
+  isOpen: boolean; onClose: () => void; onConfirm: () => void; isLoading: boolean;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <ShieldAlert className="h-5 w-5" />Confirmation finale
+          </DialogTitle>
+          <DialogDescription>Êtes-vous absolument sûr de vouloir supprimer définitivement ce doublon ?</DialogDescription>
+        </DialogHeader>
+        <div className="py-4">
+          <p className="text-sm text-muted-foreground">Cette action ne peut pas être annulée. L'élément sera masqué définitivement.</p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={isLoading} className="cursor-pointer">Non, annuler</Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={isLoading} className="cursor-pointer">
+            {isLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suppression...</>
+              : <><Trash2 className="h-4 w-4 mr-2" />Oui, supprimer définitivement</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Modal erreurs de validation ──────────────────────────────────────
+function ValidationErrorModal({
+  isOpen, onClose, errors,
+}: {
+  isOpen: boolean; onClose: () => void; errors: string[]; onForceSave?: () => void;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-lg z-200">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <ShieldAlert className="h-5 w-5" />Validation échouée
+          </DialogTitle>
+          <DialogDescription>
+            L'enregistrement ne peut pas être effectué. Corrigez les erreurs suivantes avant de sauvegarder.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 max-h-72 overflow-y-auto py-2">
+          {errors.map((err, idx) => (
+            <div key={idx} className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800">
+              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-700 dark:text-red-400">{err}</p>
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} className="flex-1 cursor-pointer">Corriger les données</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Badge anomalie ───────────────────────────────────────────────────
 function AnomalyBadge({ type }: { type: AnomalyType }) {
   const cfg = KPI_CONFIG.find((k) => k.type === type)!;
@@ -189,7 +332,6 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
     { table: "wire", label: "Lignes", icon: Cable },
     { table: "bus_bar", label: "Bus Bars", icon: Layers },
   ];
-
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
       {equipmentTypes.map(({ table, label, icon: Icon }) => {
@@ -201,9 +343,7 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
         return (
           <div key={table} className="rounded-xl border border-border bg-card p-3 space-y-2">
             <div className="flex items-center gap-1.5">
-              <div className="p-1 rounded-md bg-primary/10">
-                <Icon className="h-3 w-3 text-primary" />
-              </div>
+              <div className="p-1 rounded-md bg-primary/10"><Icon className="h-3 w-3 text-primary" /></div>
               <span className="text-xs font-semibold text-foreground truncate">{label}</span>
             </div>
             <p className="text-xl font-bold leading-none">{total}</p>
@@ -219,10 +359,8 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
                 )}
               </div>
               <div className="w-full h-1 rounded-full bg-border overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                  style={{ width: total > 0 ? `${(conformes / total) * 100}%` : "0%" }}
-                />
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  style={{ width: total > 0 ? `${(conformes / total) * 100}%` : "0%" }} />
               </div>
             </div>
           </div>
@@ -232,10 +370,9 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
   );
 }
 
-// ─── Barre de recherche puissante ─────────────────────────────────────
+// ─── Barre de recherche ───────────────────────────────────────────────
 function EquipmentSearchBar({
-  allAnomalies,
-  onEquipmentClick,
+  allAnomalies, onEquipmentClick,
 }: {
   allAnomalies: AnomalyItem[];
   onEquipmentClick: (equipment: EquipmentDetail) => void;
@@ -248,22 +385,18 @@ function EquipmentSearchBar({
   const results = useMemo(() => {
     if (!query.trim() || query.length < 2) return [];
     const q = query.toLowerCase();
-    return allAnomalies
-      .filter(a => {
-        const name = (a.name || "").toLowerCase();
-        const mrid = String(a.mrid || "").toLowerCase();
-        const tableLabel = (TABLE_LABELS[a.table] || a.table).toLowerCase();
-        const dataName = (a.data?.name || a.collected_data?.name || a.reference_data?.name || "").toLowerCase();
-        return name.includes(q) || mrid.includes(q) || tableLabel.includes(q) || dataName.includes(q);
-      })
-      .slice(0, 20);
+    return allAnomalies.filter(a => {
+      const name = (a.name || "").toLowerCase();
+      const mrid = String(a.mrid || "").toLowerCase();
+      const tableLabel = (TABLE_LABELS[a.table] || a.table).toLowerCase();
+      const dataName = (a.data?.name || a.collected_data?.name || a.reference_data?.name || "").toLowerCase();
+      return name.includes(q) || mrid.includes(q) || tableLabel.includes(q) || dataName.includes(q);
+    }).slice(0, 20);
   }, [query, allAnomalies]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -292,51 +425,41 @@ function EquipmentSearchBar({
   };
 
   const handleSelect = (anomaly: AnomalyItem) => {
-    const equipment = buildEquipmentDetail(anomaly);
-    onEquipmentClick(equipment);
+    onEquipmentClick(buildEquipmentDetail(anomaly));
     setIsOpen(false);
     setQuery("");
   };
-
-  const anomalyCfg = (type: AnomalyType) => KPI_CONFIG.find(k => k.type === type)!;
 
   return (
     <div ref={containerRef} className="relative">
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          ref={inputRef}
-          value={query}
+        <Input ref={inputRef} value={query}
           onChange={e => { setQuery(e.target.value); setIsOpen(true); }}
           onFocus={() => query.length >= 2 && setIsOpen(true)}
           placeholder="Rechercher un équipement par nom, M-RID, type… (poste, cellule, switch, câble…)"
           className="pl-9 pr-4 h-10 text-sm"
         />
         {query && (
-          <button onClick={() => { setQuery(""); setIsOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
+          <button onClick={() => { setQuery(""); setIsOpen(false); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
             <X className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
-
       {isOpen && results.length > 0 && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-xl border border-border bg-card shadow-xl overflow-hidden max-h-80 overflow-y-auto">
           <div className="px-3 py-1.5 border-b border-border/50 bg-muted/20">
             <span className="text-[10px] text-muted-foreground font-medium">{results.length} résultat{results.length > 1 ? "s" : ""} trouvé{results.length > 1 ? "s" : ""}</span>
           </div>
           {results.map(anomaly => {
-            const cfg = anomalyCfg(anomaly.type);
+            const cfg = KPI_CONFIG.find(k => k.type === anomaly.type)!;
             const Icon = TABLE_ICONS[anomaly.table] || Box;
             const CfgIcon = cfg.icon;
             return (
-              <button
-                key={anomaly.id}
-                onClick={() => handleSelect(anomaly)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition-colors text-left border-b border-border/20 last:border-0 cursor-pointer"
-              >
-                <div className="p-1.5 rounded-lg bg-primary/10 shrink-0">
-                  <Icon className="h-3.5 w-3.5 text-primary" />
-                </div>
+              <button key={anomaly.id} onClick={() => handleSelect(anomaly)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/30 transition-colors text-left border-b border-border/20 last:border-0 cursor-pointer">
+                <div className="p-1.5 rounded-lg bg-primary/10 shrink-0"><Icon className="h-3.5 w-3.5 text-primary" /></div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{anomaly.name || anomaly.mrid}</p>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -353,7 +476,6 @@ function EquipmentSearchBar({
           })}
         </div>
       )}
-
       {isOpen && query.length >= 2 && results.length === 0 && (
         <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-xl border border-border bg-card shadow-xl p-6 text-center">
           <Search className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
@@ -366,28 +488,23 @@ function EquipmentSearchBar({
 
 // ─── Historique des modifications récentes ────────────────────────────
 function RecentEditsPanel({
-  recentEdits,
-  onEquipmentClick,
+  recentEdits, onEquipmentClick,
 }: {
   recentEdits: RecentEdit[];
   onEquipmentClick: (equipment: EquipmentDetail) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   if (recentEdits.length === 0) return null;
-
   const formatTime = (ts: number) => {
     const diff = Date.now() - ts;
     if (diff < 60000) return "à l'instant";
     if (diff < 3600000) return `il y a ${Math.floor(diff / 60000)}min`;
     return `il y a ${Math.floor(diff / 3600000)}h`;
   };
-
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/20 transition-colors cursor-pointer"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className="flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/20 transition-colors cursor-pointer">
         <History className="h-4 w-4 text-primary" />
         <span className="font-semibold text-sm flex-1 text-left">Modifications récentes</span>
         <Badge className="bg-amber-100 text-amber-700 border-amber-200">{recentEdits.length}</Badge>
@@ -398,14 +515,9 @@ function RecentEditsPanel({
           {recentEdits.map((edit, idx) => {
             const Icon = TABLE_ICONS[edit.table] || Box;
             return (
-              <button
-                key={idx}
-                onClick={() => onEquipmentClick(edit.equipment)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors text-left cursor-pointer"
-              >
-                <div className="p-1.5 rounded-lg bg-amber-500/10 shrink-0">
-                  <Icon className="h-3.5 w-3.5 text-amber-600" />
-                </div>
+              <button key={idx} onClick={() => onEquipmentClick(edit.equipment)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/20 transition-colors text-left cursor-pointer">
+                <div className="p-1.5 rounded-lg bg-amber-500/10 shrink-0"><Icon className="h-3.5 w-3.5 text-amber-600" /></div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{edit.name}</p>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -415,8 +527,7 @@ function RecentEditsPanel({
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 text-[10px] text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  {formatTime(edit.editedAt)}
+                  <Clock className="h-3 w-3" />{formatTime(edit.editedAt)}
                 </div>
               </button>
             );
@@ -437,13 +548,11 @@ function AssignDialog({
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const getInitials = (firstName: string, lastName: string) =>
     `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase();
-
   const handleAssign = () => {
     if (!selectedAgentId) { toast.warning("Veuillez sélectionner un agent"); return; }
     const selectedAgent = processingAgents.find(agent => agent.id === selectedAgentId);
     if (selectedAgent) onAssign(selectedAgentId, `${selectedAgent.firstName} ${selectedAgent.lastName}`);
   };
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
@@ -459,9 +568,7 @@ function AssignDialog({
         <div className="space-y-4 py-4">
           <div className="space-y-2">
             <Label>Départ concerné</Label>
-            <div className="p-3 bg-muted/30 rounded-lg">
-              <p className="font-medium text-sm">{feederName}</p>
-            </div>
+            <div className="p-3 bg-muted/30 rounded-lg"><p className="font-medium text-sm">{feederName}</p></div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="agent">Sélectionner un agent</Label>
@@ -493,8 +600,10 @@ function AssignDialog({
         </div>
         <DialogFooter className="flex gap-2">
           <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose} disabled={isAssigning}>Annuler</Button>
-          <Button onClick={handleAssign} disabled={isAssigning || !selectedAgentId || processingAgents.length === 0} className="flex-1 bg-purple-600 hover:bg-purple-700 cursor-pointer">
-            {isAssigning ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Assignation...</> : <><UserCheck className="h-4 w-4 mr-2" />{isReassign ? "Réassigner" : "Assigner"}</>}
+          <Button onClick={handleAssign} disabled={isAssigning || !selectedAgentId || processingAgents.length === 0}
+            className="flex-1 bg-purple-600 hover:bg-purple-700 cursor-pointer">
+            {isAssigning ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Assignation...</>
+              : <><UserCheck className="h-4 w-4 mr-2" />{isReassign ? "Réassigner" : "Assigner"}</>}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -504,27 +613,13 @@ function AssignDialog({
 
 // ─── OccurrenceEditCard ───────────────────────────────────────────────
 function OccurrenceEditCard({
-  occurrence,
-  index,
-  canEdit,
-  onSaveSuccess,
-  feederId,
-  equipmentTable,
-  user,
-  updateAttributeMutation,
-  refreshData,
-  onCloseModal,
+  occurrence, index, canEdit, onSaveSuccess, feederId, equipmentTable,
+  user, updateAttributeMutation, refreshData, onCloseModal,
 }: {
-  occurrence: any;
-  index: number;
-  canEdit: boolean;
+  occurrence: any; index: number; canEdit: boolean;
   onSaveSuccess: (mrid: string, updatedData: Record<string, unknown>) => void;
-  feederId: string;
-  equipmentTable: string;
-  user: any;
-  updateAttributeMutation: any;
-  refreshData: () => void;
-  onCloseModal?: () => void;
+  feederId: string; equipmentTable: string; user: any;
+  updateAttributeMutation: any; refreshData: () => void; onCloseModal?: () => void;
 }) {
   const HIDDEN_FIELDS = new Set([
     "qrcode", "precision", "photo", "exploitattion_m_rid", "collected_date",
@@ -538,6 +633,13 @@ function OccurrenceEditCard({
   const [editedData, setEditedData] = useState<Record<string, any>>({ ...localRecord });
   const [isSaving, setIsSaving] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showFinalConfirmModal, setShowFinalConfirmModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const hideRecordMutation = useHideRecord();
+  const preSaveCheckMutation = usePreSaveCheck();
 
   const getPhotoUrl = (photo: any) => {
     if (!photo) return null;
@@ -547,12 +649,11 @@ function OccurrenceEditCard({
   };
   const photoUrl = getPhotoUrl(localRecord.photo);
 
-  const editableFields = useMemo(() => {
-    return Object.keys(localRecord).filter(k =>
-      !HIDDEN_FIELDS.has(k) && !LOCATION_FIELDS.has(k)
-    );
-  }, [localRecord]);
-
+  // ── m_rid inclus dans les champs éditables pour OccurrenceEditCard ──
+  const editableFields = useMemo(() =>
+    Object.keys(localRecord).filter(k => !HIDDEN_FIELDS.has(k) && !LOCATION_FIELDS.has(k)),
+    [localRecord]
+  );
   const fieldsWithValue = editableFields.filter(k => localRecord[k] !== null && localRecord[k] !== undefined && localRecord[k] !== "");
   const fieldsWithoutValue = editableFields.filter(k => localRecord[k] === null || localRecord[k] === undefined || localRecord[k] === "");
 
@@ -564,191 +665,215 @@ function OccurrenceEditCard({
     if (["voltage", "apparent_power", "height", "w1_voltage", "w2_voltage", "highest_voltage_level"].includes(field)) return "number";
     return "text";
   };
+  const getSelectValue = (value: any): string => (value === 1 || value === "1") ? "true" : "false";
 
-  const getSelectValue = (value: any): string => {
-    if (value === 1 || value === "1") return "true";
-    return "false";
+  const doSave = async (changedFields: string[]) => {
+    const sqlTableName = TABLE_NAME_MAP[equipmentTable] ?? equipmentTable;
+    await Promise.all(changedFields.map(field =>
+      updateAttributeMutation.mutateAsync({
+        feeder_id: feederId, table_name: sqlTableName, record_id: String(mrid),
+        attribute_name: field, new_value: editedData[field],
+        changed_by: user.id, changed_by_name: `${user.firstName} ${user.lastName}`,
+        comment: `Correction doublon occurrence #${index + 1}`,
+      })
+    ));
+    const updatedRecord = { ...localRecord };
+    changedFields.forEach(f => { updatedRecord[f] = editedData[f]; });
+    setLocalRecord(updatedRecord);
+    setEditedData({ ...updatedRecord });
+    toast.success(`Occurrence #${index + 1} — ${changedFields.length} champ(s) enregistré(s)`);
+    onSaveSuccess(mrid, updatedRecord);
+    refreshData();
+    if (onCloseModal) onCloseModal();
   };
 
   const handleSave = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setIsSaving(true);
-    const changedFields = editableFields.filter(field =>
-      String(editedData[field]) !== String(localRecord[field])
-    );
+    const changedFields = editableFields.filter(field => String(editedData[field]) !== String(localRecord[field]));
     if (changedFields.length === 0) { toast.info("Aucune modification"); setIsSaving(false); return; }
-    const sqlTableName = TABLE_NAME_MAP[equipmentTable] ?? equipmentTable;
+    const payload: Record<string, unknown> = { m_rid: mrid };
+    changedFields.forEach(f => { payload[f] = editedData[f]; });
     try {
-      await Promise.all(changedFields.map(field =>
-        updateAttributeMutation.mutateAsync({
-          feeder_id: feederId,
-          table_name: sqlTableName,
-          record_id: String(mrid),
-          attribute_name: field,
-          new_value: editedData[field],
-          changed_by: user.id,
-          changed_by_name: `${user.firstName} ${user.lastName}`,
-          comment: `Correction doublon occurrence #${index + 1}`,
-        })
-      ));
-      const updatedRecord = { ...localRecord };
-      changedFields.forEach(f => { updatedRecord[f] = editedData[f]; });
-      setLocalRecord(updatedRecord);
-      setEditedData({ ...updatedRecord });
-      toast.success(`Occurrence #${index + 1} — ${changedFields.length} champ(s) enregistré(s)`);
-      onSaveSuccess(mrid, updatedRecord);
+      const checkResult = await preSaveCheckMutation.mutateAsync({ tableName: equipmentTable, payload });
+      if (!checkResult.can_save) { setValidationErrors(checkResult.errors); setShowValidationModal(true); setIsSaving(false); return; }
+      await doSave(changedFields);
+    } catch { toast.error("Erreur lors de la validation ou de l'enregistrement"); }
+    setIsSaving(false);
+  };
+
+  const handleFinalConfirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const sqlTableName = TABLE_NAME_MAP[equipmentTable] ?? equipmentTable;
+      await hideRecordMutation.mutateAsync({ tableName: sqlTableName, recordId: String(mrid) });
+      toast.success(`Occurrence #${index + 1} supprimée avec succès`);
       refreshData();
       if (onCloseModal) onCloseModal();
-    } catch {
-      toast.error("Erreur lors de l'enregistrement");
-    }
-    setIsSaving(false);
+    } catch { toast.error("Erreur lors de la suppression"); }
+    finally { setIsDeleting(false); setShowFinalConfirmModal(false); }
   };
 
   const hasChanges = editableFields.some(f => String(editedData[f]) !== String(localRecord[f]));
 
   return (
-    <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden bg-purple-50/30 dark:bg-purple-950/10">
-      <div className="px-3 py-2.5 bg-purple-100/50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-purple-700 dark:text-purple-400">
-            Occurrence #{index + 1}
-          </span>
-          <span className="text-[10px] font-mono text-purple-600/70 break-all">{mrid}</span>
-        </div>
-        {hasChanges && (
-          <span className="text-[10px] text-amber-600 font-medium">● modifié</span>
-        )}
-      </div>
+    <>
+      <ValidationErrorModal isOpen={showValidationModal} onClose={() => setShowValidationModal(false)} errors={validationErrors} />
+      <DeleteDuplicateConfirmModal isOpen={showDeleteModal} onClose={() => setShowDeleteModal(false)}
+        onConfirm={() => { setShowDeleteModal(false); setShowFinalConfirmModal(true); }}
+        occurrenceName={occurrence.name || mrid} isLoading={isDeleting} />
+      <FinalConfirmModal isOpen={showFinalConfirmModal} onClose={() => setShowFinalConfirmModal(false)}
+        onConfirm={handleFinalConfirmDelete} isLoading={isDeleting} />
 
-      {photoUrl && (
-        <div className="px-3 pt-3">
-          <PhotoThumb src={photoUrl} alt={`Occurrence ${index + 1}`} />
-        </div>
-      )}
-
-      {(localRecord.latitude || localRecord.longitude) && (
-        <div className="px-3 pt-3">
-          <div className="p-2 rounded-lg bg-muted/30 flex items-center gap-2 text-xs">
-            <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span className="font-mono text-muted-foreground">
-              {localRecord.latitude ? parseFloat(String(localRecord.latitude)).toFixed(6) : "—"},{" "}
-              {localRecord.longitude ? parseFloat(String(localRecord.longitude)).toFixed(6) : "—"}
-            </span>
-            <span className="text-[10px] text-muted-foreground ml-auto">non modifiable</span>
+      <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden bg-purple-50/30 dark:bg-purple-950/10">
+        <div className="px-3 py-2.5 bg-purple-100/50 dark:bg-purple-900/20 border-b border-purple-200 dark:border-purple-800 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-purple-700 dark:text-purple-400">Occurrence #{index + 1}</span>
+            <span className="text-[10px] font-mono text-purple-600/70 break-all">{mrid}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasChanges && <span className="text-[10px] text-amber-600 font-medium">● modifié</span>}
+            {canEdit && (
+              <Button variant="destructive" size="sm" onClick={() => setShowDeleteModal(true)} disabled={isDeleting}
+                className="h-7 px-2 text-xs gap-1 cursor-pointer">
+                <Trash2 className="h-3 w-3" />Supprimer
+              </Button>
+            )}
           </div>
         </div>
-      )}
-
-      <div className="p-3 space-y-2">
-        {fieldsWithValue.map(field => {
-          const inputType = getFieldInputType(field);
-          const value = editedData[field];
-          const originalValue = localRecord[field];
-          const isModified = String(value) !== String(originalValue);
-
-          return (
-            <div key={field} className="space-y-1">
-              <div className="flex items-center justify-between">
-                <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
-                {isModified && canEdit && (
-                  <span className="text-[10px] text-amber-600">modifié</span>
-                )}
-              </div>
-              {!canEdit ? (
-                <div className="p-1.5 rounded bg-muted/20 text-xs font-mono">{fv(value)}</div>
-              ) : inputType === "select" ? (
-                <Select 
-                  value={getSelectValue(value)} 
-                  onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
-                >
-                  <SelectTrigger className="h-8 text-xs cursor-pointer">
-                    <SelectValue placeholder="Sélectionner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
-                    <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  type={inputType}
-                  value={String(value ?? "")}
-                  onChange={e => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                  className={cn("h-8 text-xs", isModified && "border-amber-500 focus-visible:ring-amber-500")}
-                />
-              )}
-              {isModified && canEdit && (
-                <p className="text-[10px] text-muted-foreground">Ancienne valeur: {fv(originalValue)}</p>
-              )}
+        {photoUrl && <div className="px-3 pt-3"><PhotoThumb src={photoUrl} alt={`Occurrence ${index + 1}`} /></div>}
+        {(localRecord.latitude || localRecord.longitude) && (
+          <div className="px-3 pt-3">
+            <div className="p-2 rounded-lg bg-muted/30 flex items-center gap-2 text-xs">
+              <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="font-mono text-muted-foreground">
+                {localRecord.latitude ? parseFloat(String(localRecord.latitude)).toFixed(6) : "—"},{" "}
+                {localRecord.longitude ? parseFloat(String(localRecord.longitude)).toFixed(6) : "—"}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-auto">non modifiable</span>
             </div>
-          );
-        })}
-
-        {fieldsWithoutValue.length > 0 && (
-          <details className="pt-1">
-            <summary
-              className="text-[11px] text-purple-600 cursor-pointer hover:text-purple-800 select-none"
-              onClick={() => setIsExpanded(p => !p)}
-            >
-              {isExpanded ? "Masquer" : `+ ${fieldsWithoutValue.length} champ(s) vide(s)`}
-            </summary>
-            <div className="mt-2 space-y-2">
-              {fieldsWithoutValue.map(field => {
-                const inputType = getFieldInputType(field);
-                const value = editedData[field];
-                return (
-                  <div key={field} className="space-y-1">
-                    <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
-                    {!canEdit ? (
-                      <div className="p-1.5 rounded bg-muted/20 text-xs font-mono text-muted-foreground">—</div>
-                    ) : inputType === "select" ? (
-                      <Select 
-                        value={getSelectValue(value)} 
-                        onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
-                      >
-                        <SelectTrigger className="h-8 text-xs cursor-pointer">
-                          <SelectValue placeholder="Non défini" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
-                          <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        type={inputType}
-                        value={String(value ?? "")}
-                        placeholder="—"
-                        onChange={e => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                        className="h-8 text-xs"
-                      />
+          </div>
+        )}
+        <div className="p-3 space-y-2">
+          {fieldsWithValue.map(field => {
+            const inputType = getFieldInputType(field);
+            const value = editedData[field];
+            const originalValue = localRecord[field];
+            const isModified = String(value) !== String(originalValue);
+            // m_rid toujours éditable dans OccurrenceEditCard
+            const isMridField = field === "m_rid";
+            return (
+              <div key={field} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    {fl(field)}
+                    {isMridField && canEdit && (
+                      <span className="text-[9px] text-purple-500 font-medium px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30">modifiable</span>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          </details>
+                  </Label>
+                  {isModified && canEdit && <span className="text-[10px] text-amber-600">modifié</span>}
+                </div>
+                {!canEdit ? (
+                  <div className="p-1.5 rounded bg-muted/20 text-xs font-mono">{fv(value)}</div>
+                ) : inputType === "select" && !isMridField ? (
+                  <Select value={getSelectValue(value)} onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}>
+                    <SelectTrigger className="h-8 text-xs cursor-pointer"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                      <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type={isMridField ? "text" : inputType}
+                    value={String(value ?? "")}
+                    onChange={e => handleFieldChange(field, inputType === "number" && !isMridField ? parseFloat(e.target.value) : e.target.value)}
+                    className={cn(
+                      "h-8 text-xs",
+                      isModified && "border-amber-500 focus-visible:ring-amber-500",
+                      isMridField && "border-purple-400 focus-visible:ring-purple-400 font-mono"
+                    )}
+                  />
+                )}
+                {isModified && canEdit && <p className="text-[10px] text-muted-foreground">Ancienne valeur: {fv(originalValue)}</p>}
+              </div>
+            );
+          })}
+          {fieldsWithoutValue.length > 0 && (
+            <details className="pt-1">
+              <summary className="text-[11px] text-purple-600 cursor-pointer hover:text-purple-800 select-none"
+                onClick={() => setIsExpanded(p => !p)}>
+                {isExpanded ? "Masquer" : `+ ${fieldsWithoutValue.length} champ(s) vide(s)`}
+              </summary>
+              <div className="mt-2 space-y-2">
+                {fieldsWithoutValue.map(field => {
+                  const inputType = getFieldInputType(field);
+                  const value = editedData[field];
+                  const isMridField = field === "m_rid";
+                  return (
+                    <div key={field} className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">{fl(field)}</Label>
+                      {!canEdit ? (
+                        <div className="p-1.5 rounded bg-muted/20 text-xs font-mono text-muted-foreground">—</div>
+                      ) : inputType === "select" && !isMridField ? (
+                        <Select value={getSelectValue(value)} onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}>
+                          <SelectTrigger className="h-8 text-xs cursor-pointer"><SelectValue placeholder="Non défini" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                            <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          type={isMridField ? "text" : inputType}
+                          value={String(value ?? "")}
+                          placeholder="—"
+                          onChange={e => handleFieldChange(field, inputType === "number" && !isMridField ? parseFloat(e.target.value) : e.target.value)}
+                          className={cn("h-8 text-xs", isMridField && "border-purple-400 focus-visible:ring-purple-400 font-mono")}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+        </div>
+        {canEdit && (
+          <div className="px-3 pb-3 border-t border-purple-200 dark:border-purple-800 pt-3">
+            <Button onClick={handleSave} disabled={isSaving || !hasChanges} size="sm" className="w-full cursor-pointer">
+              {isSaving
+                ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Enregistrement...</>
+                : <><Save className="h-3.5 w-3.5 mr-2" />Enregistrer l'occurrence #{index + 1}</>}
+            </Button>
+          </div>
         )}
       </div>
-
-      {canEdit && (
-        <div className="px-3 pb-3 border-t border-purple-200 dark:border-purple-800 pt-3">
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || !hasChanges}
-            size="sm"
-            className="w-full cursor-pointer"
-          >
-            {isSaving
-              ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Enregistrement...</>
-              : <><Save className="h-3.5 w-3.5 mr-2" />Enregistrer l'occurrence #{index + 1}</>
-            }
-          </Button>
-        </div>
-      )}
-    </div>
+    </>
   );
+}
+
+// ─── Hook utilitaire pour l'insertion selon la table ──────────────────
+function useInsertByTable(table: string) {
+  const insertFeeder = useInsertFeeder();
+  const insertSubstation = useInsertSubstation();
+  const insertWire = useInsertWire();
+  const insertBay = useInsertBay();
+  const insertPowerTransformer = useInsertPowerTransformer();
+  const insertSwitch = useInsertSwitch();
+  const insertBusbar = useInsertBusbar();
+
+  const mutationMap: Record<string, any> = {
+    feeder: insertFeeder,
+    substation: insertSubstation,
+    wire: insertWire,
+    bay: insertBay,
+    powertransformer: insertPowerTransformer,
+    switch: insertSwitch,
+    bus_bar: insertBusbar,
+  };
+
+  return mutationMap[table] ?? null;
 }
 
 // ─── Sheet détail équipement ───────────────────────────────────────────
@@ -765,8 +890,14 @@ function EquipmentDetailSheet({
   const [editedData, setEditedData] = useState<Record<string, unknown>>({});
   const [localData, setLocalData] = useState<Record<string, unknown>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isInserting, setIsInserting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+
+  const preSaveCheckMutation = usePreSaveCheck();
+  const insertMutation = useInsertByTable(equipment?.table ?? "");
 
   const HIDDEN_FIELDS = new Set([
     "qrcode", "precision", "photo", "exploitattion_m_rid", "collected_date",
@@ -776,10 +907,7 @@ function EquipmentDetailSheet({
   const LOCATION_FIELDS = new Set(["latitude", "longitude"]);
 
   useEffect(() => {
-    if (equipment) {
-      setLocalData({ ...equipment.data });
-      setEditedData({ ...equipment.data });
-    }
+    if (equipment) { setLocalData({ ...equipment.data }); setEditedData({ ...equipment.data }); }
   }, [equipment]);
 
   const divergentFieldNames = useMemo(() => {
@@ -787,14 +915,20 @@ function EquipmentDetailSheet({
     return d?.divergent_fields ? new Set(d.divergent_fields.map(df => df.field)) : new Set<string>();
   }, [equipment]);
 
+  const isMissingEquipment = equipment?.anomalies.some(a => a.type === "missing") ?? false;
+  // Pour les manquants : éditable pour préparer l'insertion
+  // Pour les autres : éditable si traitement actif et autorisé
+  const canEdit = isTreatmentActive && !!isTreatmentAllowed;
+
   const allFields = useMemo(() => {
     if (!equipment) return [];
     const data = editedData;
     const fieldsWithValue: string[] = [];
     const fieldsWithoutValue: string[] = [];
+    // ── m_rid inclus (non filtré) ──
     const keys = Object.keys(data).filter(k =>
       !HIDDEN_FIELDS.has(k) && !LOCATION_FIELDS.has(k) &&
-      k !== "m_rid" && k !== "_anomalyType" && k !== "_table" &&
+      k !== "_anomalyType" && k !== "_table" &&
       k !== "created_date" && k !== "created_at" &&
       k !== "structure_m_rid" && k !== "localisation" && k !== "description" && k !== "observation"
     );
@@ -804,14 +938,19 @@ function EquipmentDetailSheet({
       if (hasValue) fieldsWithValue.push(field);
       else fieldsWithoutValue.push(field);
     }
-    const sortByPriority = (fields: string[]) =>
-      fields.sort((a, b) => {
+    // m_rid toujours en premier
+    const sortByPriority = (fields: string[]) => {
+      const mridIdx = fields.indexOf("m_rid");
+      const sorted = fields.filter(f => f !== "m_rid").sort((a, b) => {
         const aP = divergentFieldNames.has(a);
         const bP = divergentFieldNames.has(b);
         if (aP && !bP) return -1;
         if (!aP && bP) return 1;
         return a.localeCompare(b);
       });
+      if (mridIdx !== -1) return ["m_rid", ...sorted];
+      return sorted;
+    };
     return [...sortByPriority(fieldsWithValue), ...sortByPriority(fieldsWithoutValue)];
   }, [equipment, editedData, divergentFieldNames]);
 
@@ -831,24 +970,39 @@ function EquipmentDetailSheet({
     return null;
   };
   const displayPhotoUrl = getPhotoUrl(equipment.photo || equipment.data?.photo);
-  const canEdit = isTreatmentActive && isTreatmentAllowed;
   const isDuplicateAnomaly = equipment.anomalies.some(a => a.type === "duplicate");
   const duplicateAnomaly = equipment.anomalies.find(a => a.type === "duplicate");
   const isDivergenceAnomaly = equipment.anomalies.some(a => a.type === "divergence");
 
   const getFieldInputType = (field: string): "text" | "number" | "select" => {
+    if (field === "m_rid") return "text"; // m_rid toujours text
     if (["active", "is_injection", "is_feederhead", "normal_open", "display_scada"].includes(field)) return "select";
     if (["voltage", "apparent_power", "height", "w1_voltage", "w2_voltage", "highest_voltage_level"].includes(field)) return "number";
     return "text";
   };
-
-  const getSelectValue = (value: any): string => {
-    if (value === 1 || value === "1") return "true";
-    return "false";
-  };
-
+  const getSelectValue = (value: any): string => (value === 1 || value === "1") ? "true" : "false";
   const handleFieldChange = (field: string, value: string | number | boolean) =>
     setEditedData((prev) => ({ ...prev, [field]: value }));
+
+  const doSave = async (changedFields: string[]) => {
+    const sqlTableName = TABLE_NAME_MAP[equipment.table] ?? equipment.table;
+    await Promise.all(changedFields.map(field =>
+      updateAttributeMutation.mutateAsync({
+        feeder_id: feederId, table_name: sqlTableName, record_id: String(equipment.mrid),
+        attribute_name: field, new_value: editedData[field],
+        changed_by: user.id, changed_by_name: `${user.firstName} ${user.lastName}`,
+        comment: `Modification depuis l'interface de traitement`,
+      })
+    ));
+    const updatedData = { ...localData };
+    changedFields.forEach(f => { updatedData[f] = editedData[f]; });
+    setLocalData(updatedData);
+    setEditedData({ ...updatedData });
+    toast.success(`${changedFields.length} champ(s) modifié(s) avec succès`);
+    onSave(equipment, updatedData);
+    refreshData();
+    onClose();
+  };
 
   const handleSave = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
@@ -857,40 +1011,78 @@ function EquipmentDetailSheet({
       key => String(editedData[key]) !== String(localData[key]) && key !== "_anomalyType" && key !== "photo"
     );
     if (changedFields.length === 0) { toast.info("Aucune modification détectée"); setIsSaving(false); return; }
-    const sqlTableName = TABLE_NAME_MAP[equipment.table] ?? equipment.table;
+    const tableNameMapForPreSave: Record<string, string> = {
+      substations: "substation", power_transformers: "powertransformer",
+      busbar: "bus_bar", feeders: "feeder", bay: "bay", switch: "switch", wire: "wire",
+    };
+    const tableNameForApi = tableNameMapForPreSave[equipment.table] ?? equipment.table;
+    const payload: Record<string, unknown> = { m_rid: editedData["m_rid"] ?? equipment.mrid };
+    changedFields.forEach(f => { payload[f] = editedData[f]; });
     try {
-      await Promise.all(changedFields.map(field =>
-        updateAttributeMutation.mutateAsync({
-          feeder_id: feederId,
-          table_name: sqlTableName,
-          record_id: String(equipment.mrid),
-          attribute_name: field,
-          new_value: editedData[field],
-          changed_by: user.id,
-          changed_by_name: `${user.firstName} ${user.lastName}`,
-          comment: `Modification depuis l'interface de traitement`,
-        })
-      ));
-      const updatedData = { ...localData };
-      changedFields.forEach(f => { updatedData[f] = editedData[f]; });
-      setLocalData(updatedData);
-      setEditedData({ ...updatedData });
-      toast.success(`${changedFields.length} champ(s) modifié(s) avec succès`);
-      onSave(equipment, updatedData);
-      refreshData();
-      onClose(); // Ferme le modal après l'enregistrement
-    } catch {
-      toast.error("Erreur lors de la modification");
-    }
+      const checkResult = await preSaveCheckMutation.mutateAsync({ tableName: tableNameForApi, payload });
+      if (!checkResult.can_save) { setValidationErrors(checkResult.errors); setShowValidationModal(true); setIsSaving(false); return; }
+      await doSave(changedFields);
+    } catch { toast.error("Erreur lors de la validation ou de l'enregistrement"); }
     setIsSaving(false);
+  };
+
+  // ── Insertion en BD pour les équipements manquants ──
+  const handleInsert = async () => {
+    if (!user) { toast.error("Utilisateur non connecté"); return; }
+    if (!insertMutation) { toast.error("Type d'équipement non supporté pour l'insertion"); return; }
+    setIsInserting(true);
+
+    // Construire le payload d'insertion avec les données éditées
+    const tableNameForApi = equipment.table;
+    const payload: Record<string, unknown> = {};
+    // Inclure toutes les données éditées non cachées
+    Object.keys(editedData).forEach(k => {
+      if (k !== "_anomalyType" && k !== "_table" && k !== "photo") {
+        payload[k] = editedData[k];
+      }
+    });
+    // S'assurer que m_rid est présent
+    if (!payload["m_rid"]) payload["m_rid"] = equipment.mrid;
+
+    try {
+      // Validation avant insertion
+      const checkResult = await preSaveCheckMutation.mutateAsync({ tableName: tableNameForApi, payload });
+      if (!checkResult.can_save) {
+        setValidationErrors(checkResult.errors);
+        setShowValidationModal(true);
+        setIsInserting(false);
+        return;
+      }
+
+      // Appel du bon hook d'insertion
+      await insertMutation.mutateAsync({
+        ...payload,
+        feeder_id: feederId,
+        inserted_by: user.id,
+        inserted_by_name: `${user.firstName} ${user.lastName}`,
+      });
+
+      toast.success(`${TABLE_LABELS[equipment.table] || equipment.table} inséré(e) avec succès dans la BD`);
+      onSave(equipment, editedData);
+      refreshData();
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.message || "Erreur lors de l'insertion en base de données");
+    }
+    setIsInserting(false);
   };
 
   const sheetWidthClass = isDuplicateAnomaly
     ? "w-screen! sm:w-[92vw]! max-w-none! sm:max-w-[92vw]!"
     : "w-screen! sm:w-[480px]! max-w-none! sm:max-w-[480px]!";
 
+  const hasChanges = Object.keys(editedData).some(
+    key => String(editedData[key]) !== String(localData[key]) && key !== "_anomalyType" && key !== "photo"
+  );
+
   return (
     <>
+      <ValidationErrorModal isOpen={showValidationModal} onClose={() => setShowValidationModal(false)} errors={validationErrors} />
       <Sheet open={isOpen} onOpenChange={onClose}>
         <SheetContent side="right" className={cn(sheetWidthClass, "flex flex-col p-0 overflow-hidden")}>
           <SheetHeader className="px-5 py-4 border-b shrink-0">
@@ -898,8 +1090,13 @@ function EquipmentDetailSheet({
               <Icon className="h-5 w-5 text-primary" />
               <SheetTitle className="text-base">{equipment.name}</SheetTitle>
             </div>
-            <SheetDescription className="text-sm">
-              {TABLE_LABELS[equipment.table] || equipment.table} • ID: {equipment.mrid}
+            <SheetDescription className="text-sm flex flex-wrap items-center gap-2">
+              <span>{TABLE_LABELS[equipment.table] || equipment.table} • ID: {equipment.mrid}</span>
+              {isMissingEquipment && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 border border-orange-200">
+                  <FileX className="h-2.5 w-2.5" />Manquant dans la BD — éditable
+                </span>
+              )}
             </SheetDescription>
           </SheetHeader>
 
@@ -911,222 +1108,254 @@ function EquipmentDetailSheet({
                   <h3 className="font-semibold text-sm text-purple-700 dark:text-purple-400">
                     {duplicateAnomaly.duplicate_occurrences.length} occurrences détectées
                   </h3>
-                  <Badge className="bg-purple-100 text-purple-700 border-purple-200 ml-auto">
-                    Doublon confirmé
-                  </Badge>
+                  <Badge className="bg-purple-100 text-purple-700 border-purple-200 ml-auto">Doublon confirmé</Badge>
                 </div>
-                <div
-                  className="grid gap-4"
-                  style={{
-                    gridTemplateColumns: `repeat(${Math.min(duplicateAnomaly.duplicate_occurrences.length, 3)}, minmax(0, 1fr))`
-                  }}
-                >
-                  {duplicateAnomaly.duplicate_occurrences.map((occ, idx) => (
-                    <OccurrenceEditCard
-                      key={occ.m_rid || idx}
-                      occurrence={occ}
-                      index={idx}
-                      canEdit={!!canEdit}
-                      onSaveSuccess={(mrid, data) => {}}
-                      feederId={feederId}
-                      equipmentTable={equipment.table}
-                      user={user}
+                <div className="grid gap-4"
+                  style={{ gridTemplateColumns: `repeat(${Math.min(duplicateAnomaly.duplicate_occurrences.length, 3)}, minmax(0, 1fr))` }}>
+                  {duplicateAnomaly.duplicate_occurrences.map((occ: any, idx: number) => (
+                    <OccurrenceEditCard key={occ.m_rid || idx} occurrence={occ} index={idx}
+                      canEdit={!!canEdit} onSaveSuccess={() => {}} feederId={feederId}
+                      equipmentTable={equipment.table} user={user}
                       updateAttributeMutation={updateAttributeMutation}
-                      refreshData={refreshData}
-                      onCloseModal={onClose}
-                    />
+                      refreshData={refreshData} onCloseModal={onClose} />
                   ))}
                 </div>
               </div>
             ) : (
-              <div className="w-full flex flex-col items-center justify-center py-2 border-b border-dashed border-border">
-                {displayPhotoUrl ? (
-                  <div
-                    className="relative cursor-pointer w-full h-full"
-                    onClick={() => { setFullscreenPhoto(displayPhotoUrl); setIsFullscreen(true); }}
-                  >
-                    <PhotoThumb src={displayPhotoUrl} alt={equipment.name} />
-                  </div>
-                ) : (
-                  <div className="w-full h-full rounded-full bg-muted/50 flex items-center justify-center">
-                    <Icon className="h-12 w-12 text-muted-foreground/50" />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* SECTION DIVERGENCE - Champs modifiables directement */}
-            {!isDuplicateAnomaly && isDivergenceAnomaly && canEdit && (
-              <div className="space-y-3">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-amber-600">
-                  Champs en divergence (modifiables directement)
-                </Label>
-                {equipment.anomalies
-                  .filter(a => a.type === "divergence" && a.divergent_fields)
-                  .flatMap(a => a.divergent_fields || [])
-                  .map((field, idx) => {
-                    const currentValue = editedData[field.field] !== undefined 
-                      ? editedData[field.field] 
-                      : field.collected_value;
-                    const isModified = String(currentValue) !== String(localData[field.field]);
-                    const inputType = getFieldInputType(field.field);
-                    
-                    return (
-                      <div key={idx} className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium">{fl(field.field)}</span>
-                          <div className="flex items-center gap-2">
-                            <AnomalyBadge type="divergence" />
-                            {isModified && <span className="text-[10px] text-amber-600">modifié</span>}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 text-xs">
-                          <div>
-                            <p className="text-muted-foreground mb-1">Valeur référence</p>
-                            <p className="font-mono p-2 rounded bg-muted/30 line-through text-muted-foreground">{fv(field.reference_value)}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground mb-1">Nouvelle valeur</p>
-                            {inputType === "select" ? (
-                              <Select 
-                                value={getSelectValue(currentValue)} 
-                                onValueChange={(v) => handleFieldChange(field.field, v === "true" ? 1 : 0)}
-                              >
-                                <SelectTrigger className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}>
-                                  <SelectValue placeholder="Sélectionner" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
-                                  <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Input 
-                                type={inputType}
-                                value={String(currentValue ?? "")} 
-                                onChange={(e) => handleFieldChange(field.field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)} 
-                                className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-
-            {/* AFFICHAGE DIVERGENCE SANS DROIT D'EDITION */}
-            {!isDuplicateAnomaly && isDivergenceAnomaly && !canEdit && (
-              <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <span className="font-semibold text-sm text-amber-700">Anomalie détectée</span>
-                </div>
-                {equipment.anomalies.map((anomaly) => (
-                  <div key={anomaly.id} className="text-sm space-y-2">
-                    <div className="flex items-center gap-2">
-                      <AnomalyBadge type={anomaly.type} />
-                      <span className="text-muted-foreground text-xs">ID: {anomaly.id}</span>
+              <>
+                {/* Photo */}
+                <div className="w-full flex flex-col items-center justify-center py-2 border-b border-dashed border-border">
+                  {displayPhotoUrl ? (
+                    <div className="relative cursor-pointer w-full h-full"
+                      onClick={() => { setFullscreenPhoto(displayPhotoUrl); setIsFullscreen(true); }}>
+                      <PhotoThumb src={displayPhotoUrl} alt={equipment.name} />
                     </div>
-                    {anomaly.type === "divergence" && anomaly.divergent_fields && (
-                      <div className="mt-2 pt-2 border-t border-amber-500/20 space-y-2">
-                        {anomaly.divergent_fields.map((df, idx) => (
-                          <div key={idx} className="p-2 rounded bg-muted/20">
-                            <div className="font-medium text-xs mb-1">{fl(df.field)}</div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div className="p-1.5 rounded bg-red-50 dark:bg-red-950/20">
-                                <span className="text-red-600 text-[10px] font-medium">RÉFÉRENCE</span>
-                                <p className="font-mono">{fv(df.reference_value)}</p>
+                  ) : (
+                    <div className="w-full h-full rounded-full bg-muted/50 flex items-center justify-center">
+                      <Icon className="h-12 w-12 text-muted-foreground/50" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Champs en divergence */}
+                {isDivergenceAnomaly && canEdit && (
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-amber-600">
+                      Champs en divergence (modifiables directement)
+                    </Label>
+                    {equipment.anomalies
+                      .filter(a => a.type === "divergence" && a.divergent_fields)
+                      .flatMap(a => a.divergent_fields || [])
+                      .map((field: any, idx: number) => {
+                        const currentValue = editedData[field.field] !== undefined ? editedData[field.field] : field.collected_value;
+                        const isModified = String(currentValue) !== String(localData[field.field]);
+                        const inputType = getFieldInputType(field.field);
+                        return (
+                          <div key={idx} className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium">{fl(field.field)}</span>
+                              <div className="flex items-center gap-2">
+                                <AnomalyBadge type="divergence" />
+                                {isModified && <span className="text-[10px] text-amber-600">modifié</span>}
                               </div>
-                              <div className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/20">
-                                <span className="text-amber-600 text-[10px] font-medium">COLLECTÉ</span>
-                                <p className="font-mono">{fv(df.collected_value)}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div>
+                                <p className="text-muted-foreground mb-1">Valeur référence</p>
+                                <p className="font-mono p-2 rounded bg-muted/30 line-through text-muted-foreground">{fv(field.reference_value)}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground mb-1">Nouvelle valeur</p>
+                                {inputType === "select" ? (
+                                  <Select value={getSelectValue(currentValue)} onValueChange={(v) => handleFieldChange(field.field, v === "true" ? 1 : 0)}>
+                                    <SelectTrigger className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")}>
+                                      <SelectValue placeholder="Sélectionner" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                                      <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  <Input type={inputType} value={String(currentValue ?? "")}
+                                    onChange={(e) => handleFieldChange(field.field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
+                                    className={cn("h-8 text-sm font-mono", isModified && "border-amber-500")} />
+                                )}
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        );
+                      })}
                   </div>
-                ))}
-              </div>
-            )}
+                )}
 
-            {!isDuplicateAnomaly && equipment.location && (
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  <MapPin className="h-3 w-3 inline mr-1" />Localisation GPS
-                </Label>
-                <div className="p-3 rounded-lg bg-muted/30">
-                  <p className="text-sm font-mono">{equipment.location.lat.toFixed(6)}, {equipment.location.lng.toFixed(6)}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">⚠️ La localisation ne peut pas être modifiée</p>
-                </div>
-              </div>
-            )}
-
-            {/* AUTRES CHAMPS (hors divergence) */}
-            {!isDuplicateAnomaly && filteredFields.length > 0 && (
-              <div className="space-y-4">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Autres données de l'équipement
-                  {isDivergenceAnomaly && <span className="ml-2 text-[10px] text-muted-foreground font-normal">(champs conformes)</span>}
-                </Label>
-                {filteredFields.map((field) => {
-                  const value = editedData[field];
-                  if (value === undefined) return null;
-                  const originalValue = localData[field];
-                  const isModified = String(value) !== String(originalValue);
-                  const inputType = getFieldInputType(field);
-                  const isDisabled = !canEdit;
-                  return (
-                    <div key={field} className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground flex items-center justify-between">
-                        <span>{fl(field)}</span>
-                        {isModified && canEdit && !isDisabled && (
-                          <span className="text-[10px] text-amber-600">modifié</span>
-                        )}
-                      </Label>
-                      {isDisabled ? (
-                        <div className="p-2 rounded-md bg-muted/20 text-sm font-mono">{fv(value)}</div>
-                      ) : inputType === "select" ? (
-                        <Select 
-                          value={getSelectValue(value)} 
-                          onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}
-                        >
-                          <SelectTrigger className="h-9 text-sm cursor-pointer">
-                            <SelectValue placeholder="Sélectionner" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
-                            <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Input
-                          type={inputType}
-                          value={String(value ?? "")}
-                          onChange={(e) => handleFieldChange(field, inputType === "number" ? parseFloat(e.target.value) : e.target.value)}
-                          className={cn("h-9 text-sm", isModified && "border-amber-500 focus-visible:ring-amber-500")}
-                          placeholder="—"
-                        />
-                      )}
-                      {isModified && originalValue !== undefined && canEdit && !isDisabled && (
-                        <p className="text-[10px] text-muted-foreground">Ancienne valeur: {fv(originalValue)}</p>
-                      )}
+                {isDivergenceAnomaly && !canEdit && (
+                  <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      <span className="font-semibold text-sm text-amber-700">Anomalie détectée</span>
                     </div>
-                  );
-                })}
-              </div>
+                    {equipment.anomalies.map((anomaly) => (
+                      <div key={anomaly.id} className="text-sm space-y-2">
+                        <div className="flex items-center gap-2">
+                          <AnomalyBadge type={anomaly.type} />
+                          <span className="text-muted-foreground text-xs">ID: {anomaly.id}</span>
+                        </div>
+                        {anomaly.type === "divergence" && anomaly.divergent_fields && (
+                          <div className="mt-2 pt-2 border-t border-amber-500/20 space-y-2">
+                            {anomaly.divergent_fields.map((df: any, idx: number) => (
+                              <div key={idx} className="p-2 rounded bg-muted/20">
+                                <div className="font-medium text-xs mb-1">{fl(df.field)}</div>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="p-1.5 rounded bg-red-50 dark:bg-red-950/20">
+                                    <span className="text-red-600 text-[10px] font-medium">RÉFÉRENCE</span>
+                                    <p className="font-mono">{fv(df.reference_value)}</p>
+                                  </div>
+                                  <div className="p-1.5 rounded bg-amber-50 dark:bg-amber-950/20">
+                                    <span className="text-amber-600 text-[10px] font-medium">COLLECTÉ</span>
+                                    <p className="font-mono">{fv(df.collected_value)}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Localisation GPS */}
+                {equipment.location && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <MapPin className="h-3 w-3 inline mr-1" />Localisation GPS
+                    </Label>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <p className="text-sm font-mono">{equipment.location.lat.toFixed(6)}, {equipment.location.lng.toFixed(6)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">⚠️ La localisation ne peut pas être modifiée</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bannière info manquant */}
+                {isMissingEquipment && canEdit && (
+                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-400/30">
+                    <div className="flex items-start gap-2">
+                      <DatabaseZap className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-orange-700 dark:text-orange-400">Équipement manquant dans la BD</p>
+                        <p className="text-[11px] text-orange-600/80 dark:text-orange-500/80 mt-0.5">
+                          Modifiez les données si nécessaire, puis cliquez sur "Insérer dans la BD" pour l'ajouter.
+                          Le M-RID est modifiable avant insertion.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Tous les champs (m_rid inclus et modifiable) */}
+                {filteredFields.length > 0 && (
+                  <div className="space-y-4">
+                    <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {isMissingEquipment ? "Données à insérer" : "Données de l'équipement"}
+                      {isDivergenceAnomaly && <span className="ml-2 text-[10px] text-muted-foreground font-normal">(champs conformes)</span>}
+                    </Label>
+                    {filteredFields.map((field) => {
+                      const value = editedData[field];
+                      if (value === undefined && !isMissingEquipment) return null;
+                      const originalValue = localData[field];
+                      const isModified = String(value) !== String(originalValue);
+                      const inputType = getFieldInputType(field);
+                      const isMridField = field === "m_rid";
+                      // Pour les manquants : tout est éditable (y compris m_rid)
+                      // Pour les autres : éditable si canEdit, sauf si manquant
+                      const isDisabled = !canEdit;
+
+                      return (
+                        <div key={field} className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-1">
+                              {fl(field)}
+                              {isMridField && canEdit && (
+                                <span className="text-[9px] text-purple-500 font-medium px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30">
+                                  {isMissingEquipment ? "modifiable avant insertion" : "modifiable"}
+                                </span>
+                              )}
+                            </span>
+                            {isModified && canEdit && !isDisabled && <span className="text-[10px] text-amber-600">modifié</span>}
+                          </Label>
+                          {isDisabled ? (
+                            <div className="p-2 rounded-md bg-muted/20 text-sm font-mono">{fv(value)}</div>
+                          ) : inputType === "select" ? (
+                            <Select value={getSelectValue(value)} onValueChange={(v) => handleFieldChange(field, v === "true" ? 1 : 0)}>
+                              <SelectTrigger className="h-9 text-sm cursor-pointer"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="true" className="cursor-pointer">Oui / Actif</SelectItem>
+                                <SelectItem value="false" className="cursor-pointer">Non / Inactif</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              type={inputType}
+                              value={String(value ?? "")}
+                              onChange={(e) => handleFieldChange(field, inputType === "number" && !isMridField ? parseFloat(e.target.value) : e.target.value)}
+                              className={cn(
+                                "h-9 text-sm",
+                                isModified && "border-amber-500 focus-visible:ring-amber-500",
+                                isMridField && "border-purple-400 focus-visible:ring-purple-400 font-mono"
+                              )}
+                              placeholder="—"
+                            />
+                          )}
+                          {isModified && originalValue !== undefined && canEdit && !isDisabled && (
+                            <p className="text-[10px] text-muted-foreground">Ancienne valeur: {fv(originalValue)}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
+          {/* ── Footer adaptatif ── */}
           {!isDuplicateAnomaly && canEdit && (
-            <SheetFooter className="px-5 py-4 border-t shrink-0 flex flex-row gap-3">
-              <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose}>Annuler</Button>
-              <Button className="flex-1 cursor-pointer" onClick={handleSave} disabled={isSaving}>
-                {isSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enregistrement...</> : <><Save className="h-4 w-4 mr-2" />Enregistrer</>}
-              </Button>
+            <SheetFooter className="px-5 py-4 border-t shrink-0 flex flex-col gap-2">
+              {isMissingEquipment ? (
+                // ── Bouton Insérer uniquement pour les manquants ──
+                <div className="flex flex-col gap-2 w-full">
+                  <Button
+                    className="w-full cursor-pointer bg-orange-600 hover:bg-orange-700 text-white gap-2"
+                    onClick={handleInsert}
+                    disabled={isInserting}
+                  >
+                    {isInserting
+                      ? <><Loader2 className="h-4 w-4 animate-spin" />Insertion en cours...</>
+                      : <><DatabaseZap className="h-4 w-4" />Insérer dans la BD</>}
+                  </Button>
+                  <Button variant="outline" className="w-full cursor-pointer" onClick={onClose} disabled={isInserting}>
+                    Annuler
+                  </Button>
+                </div>
+              ) : (
+                // ── Boutons Enregistrer/Annuler pour les autres types ──
+                <div className="flex flex-row gap-3 w-full">
+                  <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose}>Annuler</Button>
+                  <Button className="flex-1 cursor-pointer" onClick={handleSave} disabled={isSaving}>
+                    {isSaving
+                      ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Enregistrement...</>
+                      : <><Save className="h-4 w-4 mr-2" />Enregistrer</>}
+                  </Button>
+                </div>
+              )}
+            </SheetFooter>
+          )}
+          {/* Si pas d'édition autorisée et pas un manquant : pas de footer */}
+          {!isDuplicateAnomaly && !canEdit && isMissingEquipment && (
+            <SheetFooter className="px-5 py-4 border-t shrink-0">
+              <Button variant="outline" className="w-full cursor-pointer" onClick={onClose}>Fermer</Button>
             </SheetFooter>
           )}
         </SheetContent>
@@ -1148,13 +1377,11 @@ function EquipmentDetailSheet({
 
 // ─── AnomalyCard ──────────────────────────────────────────────────────
 function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  anomaly: AnomalyItem;
-  treatment: TreatmentState;
+  anomaly: AnomalyItem; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
   onMarkTreated: (id: string) => void;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  isClickable: boolean; canProcess: boolean;
 }) {
   const t = treatment[anomaly.id];
   const isTreated = t?.treated ?? false;
@@ -1194,20 +1421,20 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
 
   const displayFields = useMemo(() => {
     const data = equipmentDetail?.data || {};
-    if (anomaly.type === "divergence" && anomaly.divergent_fields) {
+    if (anomaly.type === "divergence" && anomaly.divergent_fields)
       return anomaly.divergent_fields.slice(0, 6).map(df => ({ label: fl(df.field), value: fv(df.collected_value), field: df.field }));
-    } else if (anomaly.type === "new" || anomaly.type === "missing") {
+    if (anomaly.type === "new" || anomaly.type === "missing") {
       const imp = ["name", "type", "voltage", "regime", "exploitation", "zone_type", "section", "nature_conducteur", "phase"];
       const selected = imp.filter(f => data[f] !== undefined).slice(0, 9);
       if (selected.length < 6) selected.push(...Object.keys(data).filter(f => !imp.includes(f) && f !== "_anomalyType" && f !== "photo").slice(0, 6 - selected.length));
       return selected.map(f => ({ label: fl(f), value: fv(data[f]), field: f }));
-    } else if (anomaly.type === "duplicate") {
+    }
+    if (anomaly.type === "duplicate")
       return [
         { label: "Nom", value: anomaly.name || "—", field: "name" },
         { label: "M-RID", value: anomaly.mrid, field: "m_rid" },
         { label: "Occurrences", value: `${anomaly.duplicate_occurrences?.length || 0}`, field: "count" },
       ];
-    }
     return Object.keys(data).filter(k => k !== "m_rid" && k !== "_anomalyType" && k !== "photo").slice(0, 6).map(f => ({ label: fl(f), value: fv(data[f]), field: f }));
   }, [equipmentDetail, anomaly]);
 
@@ -1235,24 +1462,19 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
             </span>
           )}
         </div>
-
         <div className="p-3 flex gap-3">
           {displayPhotoUrl ? (
             <div className="w-32 sm:w-48 h-40 sm:h-64 rounded-lg overflow-hidden bg-muted/20 shrink-0 border border-border">
-              <img
-                src={displayPhotoUrl}
-                alt={equipmentDetail?.name || "Photo"}
+              <img src={displayPhotoUrl} alt={equipmentDetail?.name || "Photo"}
                 className="w-full h-full object-cover cursor-pointer"
                 onClick={(e) => { e.stopPropagation(); setFullscreenPhoto(displayPhotoUrl); setIsFullscreen(true); }}
-                onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400x200?text=Photo+indisponible'; }}
-              />
+                onError={(e) => { (e.target as HTMLImageElement).src = 'https://placehold.co/400x200?text=Photo+indisponible'; }} />
             </div>
           ) : (
             <div className="w-12 h-12 flex items-center justify-center bg-muted/30">
               <Icon className="h-6 w-6 text-muted-foreground/50" />
             </div>
           )}
-
           <div className="flex-1 min-w-0">
             {equipmentDetail?.location && (
               <div className="mb-2 text-xs text-muted-foreground flex items-center gap-1">
@@ -1262,7 +1484,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
             )}
             {anomaly.type === "divergence" && anomaly.divergent_fields ? (
               <div className="space-y-2">
-                {anomaly.divergent_fields.slice(0, 3).map((df, idx) => (
+                {anomaly.divergent_fields.slice(0, 3).map((df: any, idx: number) => (
                   <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-2 text-xs">
                     <div className="p-1.5 rounded bg-red-50 dark:bg-red-950/20">
                       <span className="text-red-600 text-[10px] font-medium">{fl(df.field)} - REF</span>
@@ -1282,7 +1504,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
               <div className="space-y-1">
                 <p className="text-xs font-medium text-purple-600">⚠️ {anomaly.duplicate_occurrences.length} occurrences trouvées</p>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {anomaly.duplicate_occurrences.slice(0, 3).map((occ, idx) => (
+                  {anomaly.duplicate_occurrences.slice(0, 3).map((occ: any, idx: number) => (
                     <div key={idx} className="text-[10px] font-mono bg-muted/30 p-1 rounded truncate">{occ.m_rid} - {occ.name}</div>
                   ))}
                   {anomaly.duplicate_occurrences.length > 3 && (
@@ -1302,19 +1524,7 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
             )}
           </div>
         </div>
-
-        {!isTreated && isClickable && canProcess && anomaly.type !== "duplicate" && (
-          <div className="flex justify-end pt-2 mt-2 border-t border-border/40">
-            <button
-              onClick={(e) => { e.stopPropagation(); onMarkTreated(anomaly.id); }}
-              className="flex mb-4 mr-4 items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
-            >
-              <Check className="h-3.5 w-3.5" />Marquer traité
-            </button>
-          </div>
-        )}
       </div>
-
       {isFullscreen && fullscreenPhoto && (
         <Dialog open={isFullscreen} onOpenChange={() => setIsFullscreen(false)}>
           <DialogContent className="max-w-[95vw] max-h-[95vh] w-[95vw] h-[95vh] p-0 bg-black/95 border-none">
@@ -1329,397 +1539,412 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
 
 // ─── SwitchItem ────────────────────────────────────────────────────────
 function SwitchItem({ switchAnomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  switchAnomaly: AnomalyItem;
-  treatment: TreatmentState;
+  switchAnomaly: AnomalyItem; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
   onMarkTreated: (id: string) => void;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  isClickable: boolean; canProcess: boolean;
 }) {
-  return (
-    <AnomalyCard
-      anomaly={switchAnomaly}
-      treatment={treatment}
-      onFieldChange={onFieldChange}
-      onMarkTreated={onMarkTreated}
-      onEquipmentClick={onEquipmentClick}
-      isClickable={isClickable}
-      canProcess={canProcess}
-    />
-  );
+  return <AnomalyCard anomaly={switchAnomaly} treatment={treatment} onFieldChange={onFieldChange}
+    onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />;
 }
 
 // ─── BayItem ──────────────────────────────────────────────────────────
 function BayItem({ bayAnomaly, switches, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  bayAnomaly: AnomalyItem;
-  switches: AnomalyItem[];
-  filter: FilterType;
-  treatment: TreatmentState;
+  bayAnomaly: AnomalyItem; switches: AnomalyItem[]; filter: FilterType; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
   onMarkTreated: (id: string) => void;
   onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  isClickable: boolean; canProcess: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const Icon = TABLE_ICONS["bay"] || Box;
   const bayName = bayAnomaly.name || bayAnomaly.mrid;
 
   const filteredSwitches = useMemo(() => {
-    if (filter === "all") return switches;
-    return switches.filter(s => s.type === filter);
+    if (filter === "all") return [...switches].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const filtered = switches.filter(s => s.type === filter);
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [switches, filter]);
 
   if (filter !== "all" && bayAnomaly.type !== filter && filteredSwitches.length === 0) return null;
 
+  const allChildren = [...switches];
+  const dominantCfg = getDominantAnomalyConfig([bayAnomaly, ...allChildren]);
+
   return (
     <div className="rounded-lg border border-border/50 overflow-hidden ml-2 sm:ml-4">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-3 py-2 bg-muted/5 hover:bg-muted/20 transition-colors text-left cursor-pointer"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 hover:bg-muted/20 transition-colors text-left cursor-pointer",
+          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/5"
+        )}>
         {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <div className="p-0.5 rounded-md bg-muted/50"><Icon className="h-3 w-3 text-primary/70" /></div>
         <span className="font-medium text-xs flex-1 truncate">{bayName}</span>
-        <AnomalyBadge type={bayAnomaly.type} />
+        <AnomalyBadge type={dominantCfg.type as AnomalyType} />
       </button>
 
-      {isOpen && (
-        <div className="pl-6 pr-3 py-2 space-y-2 border-t border-border/30">
-          {(filter === "all" || bayAnomaly.type === filter) && (
-            <AnomalyCard
-              anomaly={bayAnomaly}
-              treatment={treatment}
-              onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated}
-              onEquipmentClick={onEquipmentClick}
-              isClickable={isClickable}
-              canProcess={canProcess}
-            />
-          )}
-          {filteredSwitches.length > 0 && (
-            <div className="space-y-2 ml-2">
-              {filteredSwitches.map(switchAnomaly => (
-                <SwitchItem
-                  key={switchAnomaly.id}
-                  switchAnomaly={switchAnomaly}
-                  treatment={treatment}
-                  onFieldChange={onFieldChange}
-                  onMarkTreated={onMarkTreated}
-                  onEquipmentClick={onEquipmentClick}
-                  isClickable={isClickable}
-                  canProcess={canProcess}
-                />
-              ))}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="pl-6 pr-3 py-2 space-y-2 border-t border-border/30">
+              {(filter === "all" || bayAnomaly.type === filter) && (
+                <AnomalyCard anomaly={bayAnomaly} treatment={treatment} onFieldChange={onFieldChange}
+                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+              )}
+              {filteredSwitches.length > 0 && (
+                <div className="space-y-2 ml-2">
+                  {filteredSwitches.map(switchAnomaly => (
+                    <SwitchItem key={switchAnomaly.id} switchAnomaly={switchAnomaly} treatment={treatment}
+                      onFieldChange={onFieldChange} onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick}
+                      isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 // ─── SubstationItem ────────────────────────────────────────────────────
 function SubstationItem({ substationAnomaly, bays, transformers, busbars, switchesByBay, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  substationAnomaly: AnomalyItem;
-  bays: AnomalyItem[];
-  transformers: AnomalyItem[];
-  busbars: AnomalyItem[];
-  switchesByBay: Map<string, AnomalyItem[]>;
-  filter: FilterType;
-  treatment: TreatmentState;
-  onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void;
-  onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  substationAnomaly: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[];
+  busbars: AnomalyItem[]; switchesByBay: Map<string, AnomalyItem[]>; filter: FilterType;
+  treatment: TreatmentState; onFieldChange: (id: string, field: string, val: string) => void;
+  onMarkTreated: (id: string) => void; onEquipmentClick?: (equipment: EquipmentDetail) => void;
+  isClickable: boolean; canProcess: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const Icon = TABLE_ICONS["substation"] || Building2;
   const substationName = substationAnomaly.name || substationAnomaly.mrid;
 
   const filteredBays = useMemo(() => {
-    if (filter === "all") return bays;
-    return bays.filter(b => {
+    if (filter === "all") return [...bays].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const filtered = bays.filter(b => {
       if (b.type === filter) return true;
       const baySwitches = switchesByBay.get(b.mrid) || [];
       return baySwitches.some(s => s.type === filter);
     });
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [bays, filter, switchesByBay]);
 
   const filteredTransformers = useMemo(() => {
-    if (filter === "all") return transformers;
-    return transformers.filter(t => t.type === filter);
+    const filtered = filter === "all" ? transformers : transformers.filter(t => t.type === filter);
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [transformers, filter]);
 
   const filteredBusbars = useMemo(() => {
-    if (filter === "all") return busbars;
-    return busbars.filter(b => b.type === filter);
+    const filtered = filter === "all" ? busbars : busbars.filter(b => b.type === filter);
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [busbars, filter]);
 
   const hasChildren = filteredBays.length > 0 || filteredTransformers.length > 0 || filteredBusbars.length > 0;
   const substationMatchesFilter = filter === "all" || substationAnomaly.type === filter;
-
   if (!substationMatchesFilter && !hasChildren) return null;
+
+  const allSwitches = bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+  const allChildren = [...bays, ...transformers, ...busbars, ...allSwitches];
+  const dominantCfg = getDominantAnomalyConfig([substationAnomaly, ...allChildren]);
 
   return (
     <div className="rounded-lg border border-border/60 overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-3 py-2.5 bg-muted/10 hover:bg-muted/30 transition-colors text-left cursor-pointer"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors text-left cursor-pointer",
+          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/10"
+        )}>
         {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
         <div className="p-1 rounded-md bg-primary/10"><Icon className="h-3.5 w-3.5 text-primary" /></div>
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm flex-1 truncate">{substationName}</span>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="font-medium text-sm truncate">{substationName}</span>
           {substationAnomaly.data?.type && (
-            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-full">
+            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-full shrink-0">
               {substationAnomaly.data.type}
             </span>
           )}
         </div>
+        <AnomalyBadge type={dominantCfg.type as AnomalyType} />
       </button>
 
-      {isOpen && (
-        <div className="p-3 space-y-3 border-t border-border/40">
-          {substationMatchesFilter && (
-            <AnomalyCard
-              anomaly={substationAnomaly}
-              treatment={treatment}
-              onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated}
-              onEquipmentClick={onEquipmentClick}
-              isClickable={isClickable}
-              canProcess={canProcess}
-            />
-          )}
-
-          {filteredTransformers.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground pl-2">Transformateurs</div>
-              {filteredTransformers.map(transformer => (
-                <AnomalyCard key={transformer.id} anomaly={transformer} treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              ))}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 space-y-3 border-t border-border/40">
+              {substationMatchesFilter && (
+                <AnomalyCard anomaly={substationAnomaly} treatment={treatment} onFieldChange={onFieldChange}
+                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+              )}
+              {filteredTransformers.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground pl-2">Transformateurs</div>
+                  {filteredTransformers.map(transformer => (
+                    <AnomalyCard key={transformer.id} anomaly={transformer} treatment={treatment} onFieldChange={onFieldChange}
+                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
+              {filteredBusbars.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground pl-2">Bus Bars</div>
+                  {filteredBusbars.map(busbar => (
+                    <AnomalyCard key={busbar.id} anomaly={busbar} treatment={treatment} onFieldChange={onFieldChange}
+                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
+              {filteredBays.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground pl-2">Cellules</div>
+                  <div className="space-y-2">
+                    {filteredBays.map(bay => {
+                      const baySwitches = switchesByBay.get(bay.mrid) || [];
+                      return <BayItem key={bay.id} bayAnomaly={bay} switches={baySwitches} filter={filter}
+                        treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
+                        onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />;
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-
-          {filteredBusbars.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground pl-2">Bus Bars</div>
-              {filteredBusbars.map(busbar => (
-                <AnomalyCard key={busbar.id} anomaly={busbar} treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              ))}
-            </div>
-          )}
-
-          {filteredBays.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground pl-2">Cellules</div>
-              <div className="space-y-2">
-                {filteredBays.map(bay => {
-                  const baySwitches = switchesByBay.get(bay.mrid) || [];
-                  return (
-                    <BayItem
-                      key={bay.id}
-                      bayAnomaly={bay}
-                      switches={baySwitches}
-                      filter={filter}
-                      treatment={treatment}
-                      onFieldChange={onFieldChange}
-                      onMarkTreated={onMarkTreated}
-                      onEquipmentClick={onEquipmentClick}
-                      isClickable={isClickable}
-                      canProcess={canProcess}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 // ─── SubstationsRootGroup ─────────────────────────────────────────────
 function SubstationsRootGroup({ substationsList, switchesByBay, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  substationsList: {
-    substation: AnomalyItem;
-    bays: AnomalyItem[];
-    transformers: AnomalyItem[];
-    busbars: AnomalyItem[];
-  }[];
-  switchesByBay: Map<string, AnomalyItem[]>;
-  filter: FilterType;
-  treatment: TreatmentState;
+  substationsList: { substation: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[]; busbars: AnomalyItem[]; }[];
+  switchesByBay: Map<string, AnomalyItem[]>; filter: FilterType; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void;
-  onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  onMarkTreated: (id: string) => void; onEquipmentClick?: (equipment: EquipmentDetail) => void;
+  isClickable: boolean; canProcess: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-
   const substationsWithIssues = substationsList.filter(s => s.substation.type !== "ok").length;
-  const totalSubstations = substationsList.length;
+
+  const sortedSubstationsList = useMemo(() => {
+    return [...substationsList].sort((a, b) =>
+      (a.substation.name || "").localeCompare(b.substation.name || "")
+    );
+  }, [substationsList]);
+
+  const allItems = substationsList.flatMap(s => {
+    const allSwitches = s.bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+    return [s.substation, ...s.bays, ...s.transformers, ...s.busbars, ...allSwitches];
+  });
+  const dominantCfg = getDominantAnomalyConfig(allItems);
 
   if (substationsList.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-border/60 overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left cursor-pointer"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left cursor-pointer",
+          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/20"
+        )}>
         {isOpen ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <Building2 className="h-4 w-4 shrink-0 text-primary" />
+        <Building2 className={cn("h-4 w-4 shrink-0", dominantCfg.type !== "ok" ? dominantCfg.color : "text-primary")} />
         <span className="font-semibold text-sm flex-1">Postes (Substations)</span>
         <div className="flex items-center gap-2">
+          {dominantCfg.type !== "ok" && <AnomalyBadge type={dominantCfg.type as AnomalyType} />}
           {substationsWithIssues > 0 && (
-            <span className="text-[10px] text-amber-600">{substationsWithIssues} avec anomalie{substationsWithIssues > 1 ? "s" : ""}</span>
+            <span className={cn("text-[10px]", dominantCfg.color)}>{substationsWithIssues} avec anomalie{substationsWithIssues > 1 ? "s" : ""}</span>
           )}
-          <span className="text-[10px] text-muted-foreground">{totalSubstations} poste{totalSubstations > 1 ? "s" : ""}</span>
+          <span className="text-[10px] text-muted-foreground">{substationsList.length} poste{substationsList.length > 1 ? "s" : ""}</span>
         </div>
       </button>
 
-      {isOpen && (
-        <div className="p-3 space-y-3 border-t border-border/40">
-          {substationsList.map((item) => (
-            <SubstationItem
-              key={item.substation.id}
-              substationAnomaly={item.substation}
-              bays={item.bays}
-              transformers={item.transformers}
-              busbars={item.busbars}
-              switchesByBay={switchesByBay}
-              filter={filter}
-              treatment={treatment}
-              onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated}
-              onEquipmentClick={onEquipmentClick}
-              isClickable={isClickable}
-              canProcess={canProcess}
-            />
-          ))}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 space-y-3 border-t border-border/40">
+              {sortedSubstationsList.map((item) => (
+                <SubstationItem key={item.substation.id} substationAnomaly={item.substation} bays={item.bays}
+                  transformers={item.transformers} busbars={item.busbars} switchesByBay={switchesByBay}
+                  filter={filter} treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
+                  onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 // ─── WireRootGroup ─────────────────────────────────────────────────────
 function WireRootGroup({ wires, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  wires: AnomalyItem[];
-  filter: FilterType;
-  treatment: TreatmentState;
+  wires: AnomalyItem[]; filter: FilterType; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void;
-  onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  onMarkTreated: (id: string) => void; onEquipmentClick?: (equipment: EquipmentDetail) => void;
+  isClickable: boolean; canProcess: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const filteredWires = useMemo(() => {
-    if (filter === "all") return wires;
-    return wires.filter(w => w.type === filter);
+    const filtered = filter === "all" ? wires : wires.filter(w => w.type === filter);
+    return [...filtered].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [wires, filter]);
 
-  const wiresWithIssues = filteredWires.filter(w => w.type !== "ok").length;
+  const dominantCfg = getDominantAnomalyConfig(wires);
 
   if (filteredWires.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-border/60 overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left cursor-pointer"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left cursor-pointer",
+          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/20"
+        )}>
         {isOpen ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <Cable className="h-4 w-4 shrink-0 text-primary" />
+        <Cable className={cn("h-4 w-4 shrink-0", dominantCfg.type !== "ok" ? dominantCfg.color : "text-primary")} />
         <span className="font-semibold text-sm flex-1">Lignes (Wire)</span>
         <div className="flex items-center gap-2">
-          {wiresWithIssues > 0 && (
-            <span className="text-[10px] text-amber-600">{wiresWithIssues} avec anomalie{wiresWithIssues > 1 ? "s" : ""}</span>
-          )}
+          {dominantCfg.type !== "ok" && <AnomalyBadge type={dominantCfg.type as AnomalyType} />}
           <span className="text-[10px] text-muted-foreground">{filteredWires.length} câble{filteredWires.length > 1 ? "s" : ""}</span>
         </div>
       </button>
 
-      {isOpen && (
-        <div className="p-3 space-y-2 border-t border-border/40">
-          {filteredWires.map(wire => (
-            <AnomalyCard
-              key={wire.id}
-              anomaly={wire}
-              treatment={treatment}
-              onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated}
-              onEquipmentClick={onEquipmentClick}
-              isClickable={isClickable}
-              canProcess={canProcess}
-            />
-          ))}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 space-y-2 border-t border-border/40">
+              {filteredWires.map(wire => (
+                <AnomalyCard key={wire.id} anomaly={wire} treatment={treatment} onFieldChange={onFieldChange}
+                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
 // ─── FeederRootGroup ───────────────────────────────────────────────────
-function FeederRootGroup({ feeders, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
+function FeederRootGroup({ feeders, orphans, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
   feeders: AnomalyItem[];
-  filter: FilterType;
-  treatment: TreatmentState;
+  orphans: AnomalyItem[];
+  filter: FilterType; treatment: TreatmentState;
   onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void;
-  onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean;
-  canProcess: boolean;
+  onMarkTreated: (id: string) => void; onEquipmentClick?: (equipment: EquipmentDetail) => void;
+  isClickable: boolean; canProcess: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   const filteredFeeders = useMemo(() => {
-    if (filter === "all") return feeders;
-    return feeders.filter(f => f.type === filter);
+    const filtered = filter === "all" ? feeders : feeders.filter(f => f.type === filter);
+    return [...filtered].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [feeders, filter]);
 
-  if (filteredFeeders.length === 0) return null;
+  const filteredOrphans = useMemo(() => {
+    const filtered = filter === "all" ? orphans : orphans.filter(o => o.type === filter);
+    return [...filtered].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [orphans, filter]);
+
+  const allItems = [...feeders, ...orphans];
+  const dominantCfg = getDominantAnomalyConfig(allItems);
+
+  if (filteredFeeders.length === 0 && filteredOrphans.length === 0) return null;
+
+  const orphansByTable = filteredOrphans.reduce((acc, o) => {
+    if (!acc[o.table]) acc[o.table] = [];
+    acc[o.table].push(o);
+    return acc;
+  }, {} as Record<string, AnomalyItem[]>);
 
   return (
     <div className="rounded-xl border border-border/60 overflow-hidden">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 bg-muted/20 hover:bg-muted/40 transition-colors text-left cursor-pointer"
-      >
+      <button onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left cursor-pointer",
+          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/20"
+        )}>
         {isOpen ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <Zap className="h-4 w-4 shrink-0 text-primary" />
+        <Zap className={cn("h-4 w-4 shrink-0", dominantCfg.type !== "ok" ? dominantCfg.color : "text-primary")} />
         <span className="font-semibold text-sm flex-1">Départ</span>
         <div className="flex items-center gap-2">
+          {dominantCfg.type !== "ok" && <AnomalyBadge type={dominantCfg.type as AnomalyType} />}
           {filteredFeeders.filter(f => f.type !== "ok").length > 0 && (
-            <span className="text-[10px] text-amber-600">{filteredFeeders.filter(f => f.type !== "ok").length} anomalie(s)</span>
+            <span className={cn("text-[10px]", dominantCfg.color)}>
+              {filteredFeeders.filter(f => f.type !== "ok").length} anomalie(s)
+            </span>
+          )}
+          {filteredOrphans.length > 0 && (
+            <span className="text-[10px] text-muted-foreground">{filteredOrphans.length} orphelin(s)</span>
           )}
         </div>
       </button>
 
-      {isOpen && (
-        <div className="p-3 space-y-2 border-t border-border/40">
-          {filteredFeeders.map(feeder => (
-            <AnomalyCard
-              key={feeder.id}
-              anomaly={feeder}
-              treatment={treatment}
-              onFieldChange={onFieldChange}
-              onMarkTreated={onMarkTreated}
-              onEquipmentClick={onEquipmentClick}
-              isClickable={isClickable}
-              canProcess={canProcess}
-            />
-          ))}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 space-y-3 border-t border-border/40">
+              {filteredFeeders.length > 0 && (
+                <div className="space-y-2">
+                  {filteredFeeders.map(feeder => (
+                    <AnomalyCard key={feeder.id} anomaly={feeder} treatment={treatment} onFieldChange={onFieldChange}
+                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              )}
+              {Object.entries(orphansByTable).map(([table, items]) => (
+                <div key={table} className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <div className="h-px flex-1 bg-border/40" />
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-2">
+                      {TABLE_LABELS[table] || table} sans parent ({items.length})
+                    </span>
+                    <div className="h-px flex-1 bg-border/40" />
+                  </div>
+                  {items.map(orphan => (
+                    <AnomalyCard key={orphan.id} anomaly={orphan} treatment={treatment} onFieldChange={onFieldChange}
+                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1729,38 +1954,30 @@ const convertToMapEquipments = (comparisonResult: FeederComparisonResult | null,
   if (!comparisonResult) return [];
   const mapEquipments: Record<string, unknown>[] = [];
   const tables: TableName[] = ["substation", "wire"];
-
   const shouldInclude = (type: string) => {
     if (currentFilter === "all") return true;
     if (currentFilter === "ok") return type === "ok";
     return type === currentFilter;
   };
-
   for (const table of tables) {
     const tableResult = comparisonResult.tables?.[table];
     if (!tableResult) continue;
-    for (const ok of tableResult.ok ?? []) {
+    for (const ok of tableResult.ok ?? [])
       if (ok.data?.latitude && ok.data?.longitude && shouldInclude("ok"))
         mapEquipments.push({ ...ok.data, m_rid: ok.mrid, table, _anomalyType: "ok" });
-    }
-    for (const missing of tableResult.missing ?? []) {
+    for (const missing of tableResult.missing ?? [])
       if (missing.full_record?.latitude && missing.full_record?.longitude && shouldInclude("missing"))
         mapEquipments.push({ ...missing.full_record, m_rid: missing.m_rid, name: missing.name, table, _anomalyType: "missing" });
-    }
-    for (const newItem of tableResult.new ?? []) {
+    for (const newItem of tableResult.new ?? [])
       if (newItem.full_record?.latitude && newItem.full_record?.longitude && shouldInclude("new"))
         mapEquipments.push({ ...newItem.full_record, m_rid: newItem.m_rid, name: newItem.name, table, _anomalyType: "new" });
-    }
-    for (const div of tableResult.divergences ?? []) {
+    for (const div of tableResult.divergences ?? [])
       if (div.collected_data?.latitude && div.collected_data?.longitude && shouldInclude("divergence"))
         mapEquipments.push({ ...div.collected_data, m_rid: div.mrid, table, _anomalyType: "divergence" });
-    }
-    for (const dup of tableResult.duplicates ?? []) {
-      for (const occ of dup.occurrences ?? []) {
+    for (const dup of tableResult.duplicates ?? [])
+      for (const occ of dup.occurrences ?? [])
         if (occ.full_record?.latitude && occ.full_record?.longitude && shouldInclude("duplicate"))
           mapEquipments.push({ ...occ.full_record, m_rid: occ.m_rid, name: occ.name, table, _anomalyType: "duplicate" });
-      }
-    }
   }
   return mapEquipments;
 };
@@ -1818,6 +2035,7 @@ export default function FeederProcessingPage() {
   const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
   const [recentEdits, setRecentEdits] = useState<RecentEdit[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const feederStatus = treatmentStatus?.status || "collecting";
   const assignedAgentId = treatmentStatus?.assigned_to;
@@ -1828,40 +2046,30 @@ export default function FeederProcessingPage() {
   const isTreatmentActive = feederStatus === "in_progress";
   const isTreatmentAllowed = user?.id === assignedAgentId;
   const feederName = comparisonResult?.feeder_name || feederNameFromUrl;
-
   const processingAgents = useMemo(() => usersData?.data || [], [usersData]);
   const mapEquipments = useMemo(() => convertToMapEquipments(comparisonResult, activeFilter), [comparisonResult, activeFilter]);
 
-  // Charger l'historique depuis localStorage au chargement
   const loadRecentEditsFromStorage = useCallback(() => {
     if (typeof window !== 'undefined' && feederId) {
       const stored = localStorage.getItem(`recent_edits_${feederId}`);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setRecentEdits(parsed);
-        } catch (e) {
-          console.error("Erreur chargement historique", e);
-        }
-      }
+      if (stored) { try { setRecentEdits(JSON.parse(stored)); } catch { } }
     }
   }, [feederId]);
 
-  // Sauvegarder l'historique dans localStorage
   const saveRecentEditsToStorage = useCallback((edits: RecentEdit[]) => {
-    if (typeof window !== 'undefined' && feederId) {
+    if (typeof window !== 'undefined' && feederId)
       localStorage.setItem(`recent_edits_${feederId}`, JSON.stringify(edits));
-    }
   }, [feederId]);
 
-  useEffect(() => {
-    loadRecentEditsFromStorage();
-  }, [loadRecentEditsFromStorage]);
+  useEffect(() => { loadRecentEditsFromStorage(); }, [loadRecentEditsFromStorage]);
 
-  const refreshAllData = useCallback(() => {
-    refresh();
-    refetchStatus();
-    refetchUsers();
+  const refreshAllData = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([refresh(), refetchStatus(), refetchUsers()]);
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 600);
+    }
   }, [refresh, refetchStatus, refetchUsers]);
 
   useEffect(() => {
@@ -1891,60 +2099,77 @@ export default function FeederProcessingPage() {
     return anomalies;
   }, [comparisonResult]);
 
-  const { substationsList, switchesByBay } = useMemo(() => {
+  const { substationsList, switchesByBay, orphans } = useMemo(() => {
     const substations = allAnomalies.filter(a => a.table === "substation");
     const bays = allAnomalies.filter(a => a.table === "bay");
     const transformers = allAnomalies.filter(a => a.table === "powertransformer");
     const busbars = allAnomalies.filter(a => a.table === "bus_bar");
     const switches = allAnomalies.filter(a => a.table === "switch");
 
-    const substationMap = new Map<string, {
-      substation: AnomalyItem;
-      bays: AnomalyItem[];
-      transformers: AnomalyItem[];
-      busbars: AnomalyItem[];
-    }>();
-
-    for (const substation of substations) {
+    const substationMap = new Map<string, { substation: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[]; busbars: AnomalyItem[]; }>();
+    for (const substation of substations)
       substationMap.set(substation.mrid, { substation, bays: [], transformers: [], busbars: [] });
-    }
 
-    const getSubstationId = (anomaly: AnomalyItem): string | null => {
-      return anomaly.reference_data?.substation_id
-        || anomaly.reference_data?.substations_m_rid
-        || anomaly.collected_data?.substation_id
-        || anomaly.collected_data?.substations_m_rid
-        || anomaly.data?.substation_id
-        || anomaly.data?.substations_m_rid
-        || null;
-    };
+    const getSubstationId = (anomaly: AnomalyItem): string | null =>
+      anomaly.reference_data?.substation_id || anomaly.reference_data?.substations_m_rid
+      || anomaly.collected_data?.substation_id || anomaly.collected_data?.substations_m_rid
+      || anomaly.data?.substation_id || anomaly.data?.substations_m_rid || null;
+
+    const attachedBayIds = new Set<string>();
+    const attachedTransformerIds = new Set<string>();
+    const attachedBusbarIds = new Set<string>();
 
     for (const bay of bays) {
       const substationId = getSubstationId(bay);
-      if (substationId && substationMap.has(substationId)) substationMap.get(substationId)!.bays.push(bay);
+      if (substationId && substationMap.has(substationId)) {
+        substationMap.get(substationId)!.bays.push(bay);
+        attachedBayIds.add(bay.mrid);
+      }
     }
     for (const transformer of transformers) {
       const substationId = getSubstationId(transformer);
-      if (substationId && substationMap.has(substationId)) substationMap.get(substationId)!.transformers.push(transformer);
+      if (substationId && substationMap.has(substationId)) {
+        substationMap.get(substationId)!.transformers.push(transformer);
+        attachedTransformerIds.add(transformer.mrid);
+      }
     }
     for (const busbar of busbars) {
       const substationId = getSubstationId(busbar);
-      if (substationId && substationMap.has(substationId)) substationMap.get(substationId)!.busbars.push(busbar);
-    }
-
-    const switchesByBayMap = new Map<string, AnomalyItem[]>();
-    for (const switchAnomaly of switches) {
-      const bayId = switchAnomaly.reference_data?.bay_id
-        || switchAnomaly.collected_data?.bay_id
-        || switchAnomaly.data?.bay_id
-        || null;
-      if (bayId) {
-        if (!switchesByBayMap.has(bayId)) switchesByBayMap.set(bayId, []);
-        switchesByBayMap.get(bayId)!.push(switchAnomaly);
+      if (substationId && substationMap.has(substationId)) {
+        substationMap.get(substationId)!.busbars.push(busbar);
+        attachedBusbarIds.add(busbar.mrid);
       }
     }
 
-    return { substationsList: Array.from(substationMap.values()), switchesByBay: switchesByBayMap };
+    const switchesByBayMap = new Map<string, AnomalyItem[]>();
+    const attachedSwitchIds = new Set<string>();
+
+    for (const switchAnomaly of switches) {
+      let bayId = null;
+      if (switchAnomaly.reference_data?.bay_mrid) bayId = switchAnomaly.reference_data.bay_mrid;
+      else if (switchAnomaly.collected_data?.bay_id) bayId = switchAnomaly.collected_data.bay_id;
+      else if (switchAnomaly.data?.bay_id) bayId = switchAnomaly.data.bay_id;
+      else if (switchAnomaly.data?.bay_mrid) bayId = switchAnomaly.data.bay_mrid;
+
+      if (bayId) {
+        if (!switchesByBayMap.has(bayId)) switchesByBayMap.set(bayId, []);
+        switchesByBayMap.get(bayId)!.push(switchAnomaly);
+        attachedSwitchIds.add(switchAnomaly.mrid);
+      }
+    }
+
+    const orphansList: AnomalyItem[] = [
+      ...bays.filter(b => !attachedBayIds.has(b.mrid)),
+      ...transformers.filter(t => !attachedTransformerIds.has(t.mrid)),
+      ...busbars.filter(b => !attachedBusbarIds.has(b.mrid)),
+      ...switches.filter(s => !attachedSwitchIds.has(s.mrid)),
+    ];
+
+    return {
+      substationsList: Array.from(substationMap.values()),
+      switchesByBay: switchesByBayMap,
+      orphans: orphansList,
+    };
   }, [allAnomalies]);
 
   const feeders = useMemo(() => allAnomalies.filter(a => a.table === "feeder"), [allAnomalies]);
@@ -1970,7 +2195,6 @@ export default function FeederProcessingPage() {
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
-
   const handleBackToCollecting = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setCollectingMutation.mutate({ feeder_id: feederId, changed_by: user.id, changed_by_name: `${user.firstName} ${user.lastName}` }, {
@@ -1978,7 +2202,6 @@ export default function FeederProcessingPage() {
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
-
   const handleAssign = async (agentId: string, agentName: string) => {
     setIsAssigning(true);
     assignMutation.mutate({ feeder_id: feederId, agent_id: agentId, agent_name: agentName, assigned_by: user?.id || "", assigned_by_name: `${user?.firstName || ""} ${user?.lastName || ""}` }, {
@@ -1987,7 +2210,6 @@ export default function FeederProcessingPage() {
       onSettled: () => setIsAssigning(false)
     });
   };
-
   const handleStartTreatment = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     startMutation.mutate({ feeder_id: feederId, started_by: user.id, started_by_name: `${user.firstName} ${user.lastName}` }, {
@@ -1995,7 +2217,6 @@ export default function FeederProcessingPage() {
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
-
   const handleCompleteTreatment = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     setPendingValidationMutation.mutate({ feeder_id: feederId, completed_by: user.id, completed_by_name: `${user.firstName} ${user.lastName}` }, {
@@ -2003,7 +2224,6 @@ export default function FeederProcessingPage() {
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
-
   const handleValidate = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     validateMutation.mutate({ feeder_id: feederId, validated_by: user.id, validated_by_name: `${user.firstName} ${user.lastName}` }, {
@@ -2011,7 +2231,6 @@ export default function FeederProcessingPage() {
       onError: (error: Error) => toast.error(`Erreur: ${error.message}`)
     });
   };
-
   const handleReject = () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     rejectMutation.mutate({ feeder_id: feederId, rejected_by: user.id, rejected_by_name: `${user.firstName} ${user.lastName}`, reason: "Rejeté par l'agent" }, {
@@ -2024,18 +2243,10 @@ export default function FeederProcessingPage() {
     const changedFields = Object.keys(updatedData).filter(
       key => String(updatedData[key]) !== String(equipment.data[key]) && key !== "_anomalyType" && key !== "photo"
     );
-    if (changedFields.length === 0) return;
-
+    const fieldsToLog = changedFields.length > 0 ? changedFields : Object.keys(updatedData).filter(k => k !== "_anomalyType" && k !== "photo");
     setRecentEdits(prev => {
-      const filtered = prev.filter(e => e.mrid !== equipment.mrid);
-      const newEdits = [{
-        mrid: equipment.mrid,
-        name: equipment.name,
-        table: equipment.table,
-        editedAt: Date.now(),
-        fieldsChanged: changedFields,
-        equipment: { ...equipment, data: { ...equipment.data, ...updatedData } },
-      }, ...filtered].slice(0, 10);
+      const filtered = prev.filter(e => String(e.mrid) !== String(equipment.mrid));
+      const newEdits = [{ mrid: equipment.mrid, name: equipment.name, table: equipment.table, editedAt: Date.now(), fieldsChanged: fieldsToLog, equipment: { ...equipment, data: { ...equipment.data, ...updatedData } } }, ...filtered].slice(0, 10);
       saveRecentEditsToStorage(newEdits);
       return newEdits;
     });
@@ -2044,12 +2255,10 @@ export default function FeederProcessingPage() {
   const handleFieldChange = useCallback((id: string, field: string, val: string) => {
     setTreatment((prev) => ({ ...prev, [id]: { treated: prev[id]?.treated ?? false, editedFields: { ...(prev[id]?.editedFields ?? {}), [field]: val } } }));
   }, []);
-
   const handleMarkTreated = useCallback((id: string) => {
     setTreatment((prev) => ({ ...prev, [id]: { editedFields: prev[id]?.editedFields ?? {}, treated: true } }));
     toast.success("Anomalie marquée comme traitée");
   }, []);
-
   const handleEquipmentClick = useCallback((equipment: EquipmentDetail) => {
     setSelectedEquipment(equipment);
     setIsSheetOpen(true);
@@ -2070,25 +2279,21 @@ export default function FeederProcessingPage() {
   };
 
   const renderActionButtons = () => {
-    if (feederStatus === "collecting") {
+    if (feederStatus === "collecting")
       return (
         <Button onClick={handleCompleteCollection} className="gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700" disabled={setPendingMutation.isPending}>
-          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : feederStatus === "collecting" ? <Check className="h-4 w-4 mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          {feederStatus === "collecting" ? "Terminer la collecte" : "Remettre en validation"}
+          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+          Terminer la collecte
         </Button>
       );
-    }
-    if (feederStatus === "validated" || feederStatus === "rejected") {
+    if (feederStatus === "validated" || feederStatus === "rejected")
       return (
         <Button onClick={handleCompleteTreatment} className="gap-2 cursor-pointer bg-blue-600 hover:bg-blue-700" disabled={setPendingMutation.isPending}>
-          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> :  <RefreshCw className="h-4 w-4 mr-2" />}
+          {setPendingMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
           Remettre en validation
         </Button>
       );
-    }
-
-    
-    if (feederStatus === "pending") {
+    if (feederStatus === "pending")
       return (
         <div className="flex flex-col gap-2 w-full sm:w-auto">
           <Button onClick={handleBackToCollecting} variant="outline" className="gap-2 cursor-pointer w-full" disabled={setCollectingMutation.isPending}>
@@ -2115,8 +2320,7 @@ export default function FeederProcessingPage() {
           </div>
         </div>
       );
-    }
-    if (feederStatus === "assigned") {
+    if (feederStatus === "assigned")
       return (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           {user?.id === assignedAgentId && (
@@ -2135,16 +2339,14 @@ export default function FeederProcessingPage() {
           )}
         </div>
       );
-    }
-    if (feederStatus === "in_progress" && user?.id === assignedAgentId) {
+    if (feederStatus === "in_progress" && user?.id === assignedAgentId)
       return (
         <Button onClick={handleCompleteTreatment} variant="default" className="gap-2 cursor-pointer" disabled={setPendingValidationMutation.isPending}>
           {setPendingValidationMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
           Terminer le traitement
         </Button>
       );
-    }
-    if (feederStatus === "pending_validation" && (user?.role === 'Admin' || user?.role === 'Chef équipe' || user?.role === 'Agent validation')) {
+    if (feederStatus === "pending_validation" && (user?.role === 'Admin' || user?.role === 'Chef équipe' || user?.role === 'Agent validation'))
       return (
         <div className="flex flex-col gap-3 w-full sm:w-auto">
           <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground bg-muted/30 px-3 py-2 rounded-lg">
@@ -2172,8 +2374,7 @@ export default function FeederProcessingPage() {
           </div>
         </div>
       );
-    }
-    if (feederStatus === "pending_validation") {
+    if (feederStatus === "pending_validation")
       return (
         <div className="flex items-center gap-3">
           <Badge className="bg-yellow-100 text-yellow-700">En attente de validation</Badge>
@@ -2182,7 +2383,6 @@ export default function FeederProcessingPage() {
           </span>
         </div>
       );
-    }
     return null;
   };
 
@@ -2226,36 +2426,29 @@ export default function FeederProcessingPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={refreshAllData}
-              className="flex items-center gap-1 text-sm px-3 py-1 rounded border hover:bg-muted disabled:opacity-50"
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 text-sm px-3 py-1 rounded border hover:bg-muted disabled:opacity-60 transition-opacity"
             >
-              <RefreshCw className="h-3.5 w-3.5" /> Actualiser
+              <RefreshCw className={cn("h-3.5 w-3.5 transition-transform duration-300", isRefreshing && "animate-spin")} />
+              Actualiser
             </button>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap mt-1">
             <Zap className="h-5 w-5 text-primary shrink-0" />
             <h1 className="text-base sm:text-lg font-bold truncate">{feederName}</h1>
             {getStatusBadge()}
-{assignedAgentName && feederStatus !== "collecting" && feederStatus !== "pending" && (
-  <div className="flex flex-col gap-1">
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
-      <User className="h-3 w-3" />
-      <span className="hidden sm:inline">Assigné à: </span>
-      <span className="font-medium text-foreground">{assignedAgentName}</span>
-    </div>
-
-  </div>
-)}
-{feederStatus == "validated" || feederStatus !== "rejected" ? (
-<>
-    {treatmentStatus?.validated_by_name && (
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-emerald-500/10 px-2 py-1 rounded-full">
-        <UserCheck className="h-3 w-3 text-emerald-600" />
-        <span className="hidden sm:inline"> {feederStatus == "validated"?"Validé par:":"Réjété par:"} </span>
-        <span className="font-medium text-emerald-700">{treatmentStatus.validated_by_name}</span>
-      </div>
-    )}</>
-  ):(<></>)}
-  
+            {durationSeconds && feederStatus === "pending_validation" && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
+                <Timer className="h-3 w-3" /><span>{formatDuration(durationSeconds)}</span>
+              </div>
+            )}
+            {assignedAgentName && feederStatus !== "collecting" && feederStatus !== "pending" && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/30 px-2 py-1 rounded-full">
+                <User className="h-3 w-3" />
+                <span className="hidden sm:inline">Assigné à: </span>
+                <span className="font-medium text-foreground">{assignedAgentName}</span>
+              </div>
+            )}
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             Traitement · <span className="font-medium text-foreground">{counts.all}</span> anomalie{counts.all > 1 ? "s" : ""}
@@ -2315,29 +2508,19 @@ export default function FeederProcessingPage() {
       </div>
 
       <EquipmentTypeKPIs allAnomalies={allAnomalies} />
-
-      <EquipmentSearchBar
-        allAnomalies={allAnomalies}
-        onEquipmentClick={handleEquipmentClick}
-      />
-
-      <RecentEditsPanel
-        recentEdits={recentEdits}
-        onEquipmentClick={handleEquipmentClick}
-      />
+      <EquipmentSearchBar allAnomalies={allAnomalies} onEquipmentClick={handleEquipmentClick} />
+      <RecentEditsPanel recentEdits={recentEdits} onEquipmentClick={handleEquipmentClick} />
 
       <div className="space-y-3">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          {activeFilter === "all"
-            ? `${counts.all} anomalies`
-            : activeFilter === "ok"
-              ? `${counts.ok} équipements conformes`
-              : `${counts[activeFilter]} · ${KPI_CONFIG.find(k => k.type === activeFilter)?.label}`
-          }
+          {activeFilter === "all" ? `${counts.all} anomalies`
+            : activeFilter === "ok" ? `${counts.ok} équipements conformes`
+            : `${counts[activeFilter]} · ${KPI_CONFIG.find(k => k.type === activeFilter)?.label}`}
         </h2>
 
         <FeederRootGroup
           feeders={feeders}
+          orphans={orphans}
           filter={activeFilter}
           treatment={treatment}
           onFieldChange={handleFieldChange}
@@ -2393,8 +2576,10 @@ export default function FeederProcessingPage() {
         refreshData={refreshAllData}
       />
 
-      <AssignDialog isOpen={isAssignDialogOpen} onClose={() => setIsAssignDialogOpen(false)} onAssign={handleAssign} feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={false} />
-      <AssignDialog isOpen={isReassignDialogOpen} onClose={() => setIsReassignDialogOpen(false)} onAssign={handleAssign} feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={true} />
+      <AssignDialog isOpen={isAssignDialogOpen} onClose={() => setIsAssignDialogOpen(false)} onAssign={handleAssign}
+        feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={false} />
+      <AssignDialog isOpen={isReassignDialogOpen} onClose={() => setIsReassignDialogOpen(false)} onAssign={handleAssign}
+        feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={true} />
     </div>
   );
 }
