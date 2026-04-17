@@ -1,5 +1,6 @@
 // hooks/use-treatment-service.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useCallback } from 'react';
 import {
   AssignTreatmentRequest,
   StartTreatmentRequest,
@@ -10,8 +11,16 @@ import {
   SetCollectingRequest,
   SetPendingRequest,
   SetPendingValidationRequest,
+  // Types pour l'insertion
+  FeederCreate,
+  SubstationCreate,
+  WireCreate,
+  BayCreate,
+  PowerTransformerCreate,
+  SwitchCreate,
+  BusbarCreate,
 } from '@/lib/types/treatment-service';
-import { treatmentApi } from '@/lib/api/services/treatment-service';
+import { treatmentApi, DashboardStats, WeeklyTrend, ActivityItem, AgentStat, TaskDistribution, DashboardAllData } from '@/lib/api/services/treatment-service';
 import { useAuth } from '@/lib/auth/context';
 import { userService } from '@/lib/api/services/users';
 
@@ -24,7 +33,18 @@ export const treatmentKeys = {
   attributeHistory: (feederId: string) => [...treatmentKeys.all, 'history', feederId] as const,
   recordHistory: (tableName: string, recordId: string) => [...treatmentKeys.all, 'record-history', tableName, recordId] as const,
   tables: () => [...treatmentKeys.all, 'tables'] as const,
-  dashboardStats: () => [...treatmentKeys.all, 'dashboard-stats'] as const,
+  
+  // Dashboard keys - CORRIGÉ
+  dashboard: {
+    all: ['dashboard'] as const,
+    stats: (startDate?: Date, endDate?: Date) => [...treatmentKeys.dashboard.all, 'stats', { startDate, endDate }] as const,
+    weeklyTrend: (startDate?: Date, endDate?: Date) => [...treatmentKeys.dashboard.all, 'weekly-trend', { startDate, endDate }] as const,
+    recentActivity: (limit?: number, startDate?: Date, endDate?: Date) => [...treatmentKeys.dashboard.all, 'recent-activity', { limit, startDate, endDate }] as const,
+    agentStats: (startDate?: Date, endDate?: Date) => [...treatmentKeys.dashboard.all, 'agent-stats', { startDate, endDate }] as const,
+    taskDistribution: () => [...treatmentKeys.dashboard.all, 'task-distribution'] as const,
+    allData: (startDate?: Date, endDate?: Date) => [...treatmentKeys.dashboard.all, 'all-data', { startDate, endDate }] as const,
+  },
+  
   allUsers: () => [...treatmentKeys.all, 'users'] as const,
 };
 
@@ -100,13 +120,9 @@ export const useTables = () => {
   });
 };
 
-export const useDashboardStats = () => {
-  return useQuery({
-    queryKey: treatmentKeys.dashboardStats(),
-    queryFn: () => treatmentApi.getDashboardStats(),
-    refetchInterval: 30000,
-  });
-};
+// ============================================================
+// MUTATIONS POUR LA GESTION DES TRAITEMENTS
+// ============================================================
 
 export const useAssignTreatment = () => {
   const queryClient = useQueryClient();
@@ -128,7 +144,7 @@ export const useStartTreatment = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
@@ -141,12 +157,11 @@ export const useCompleteTreatment = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
 
-// NOUVEAU HOOK : Mettre en attente de validation
 export const useSetPendingValidation = () => {
   const queryClient = useQueryClient();
   
@@ -155,7 +170,7 @@ export const useSetPendingValidation = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
@@ -168,7 +183,7 @@ export const useValidateTreatment = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
@@ -181,12 +196,11 @@ export const useRejectTreatment = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
 
-// NOUVEAU HOOK : Mettre en attente de traitement (après collecte)
 export const useSetPending = () => {
   const queryClient = useQueryClient();
   
@@ -195,12 +209,11 @@ export const useSetPending = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
 
-// NOUVEAU HOOK : Mettre en cours de collecte (état initial)
 export const useSetCollecting = () => {
   const queryClient = useQueryClient();
   
@@ -209,11 +222,10 @@ export const useSetCollecting = () => {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.feeder_id) });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
-      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboardStats() });
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.all });
     },
   });
 };
-
 
 export const useHideRecord = () => {
   const queryClient = useQueryClient();
@@ -222,7 +234,6 @@ export const useHideRecord = () => {
     mutationFn: ({ tableName, recordId }: { tableName: string; recordId: string }) => 
       treatmentApi.hideRecord(tableName, recordId),
     onSuccess: (_, variables) => {
-      // Invalider les requêtes qui pourraient être affectées
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
       queryClient.invalidateQueries({ queryKey: treatmentKeys.status(variables.recordId) });
     },
@@ -239,4 +250,273 @@ export const useUpdateAttribute = () => {
       queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
     },
   });
+};
+
+// ============================================================
+// HOOKS D'INSERTION
+// ============================================================
+
+export const useInsertFeeder = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: FeederCreate) => treatmentApi.insertFeeder(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+export const useInsertSubstation = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: SubstationCreate) => treatmentApi.insertSubstation(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+export const useInsertWire = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: WireCreate) => treatmentApi.insertWire(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+export const useInsertBay = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: BayCreate) => treatmentApi.insertBay(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+export const useInsertPowerTransformer = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: PowerTransformerCreate) => treatmentApi.insertPowerTransformer(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+export const useInsertSwitch = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: SwitchCreate) => treatmentApi.insertSwitch(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+export const useInsertBusbar = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (request: BusbarCreate) => treatmentApi.insertBusbar(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: treatmentKeys.feedersWithSource() });
+    },
+  });
+};
+
+// ============================================================
+// HOOKS DASHBOARD AVEC CACHE D'UNE JOURNÉE
+// ============================================================
+
+// Cache de 24 heures (86400000 ms)
+const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+export const useDashboardStats = (startDate?: Date, endDate?: Date) => {
+  return useQuery({
+    queryKey: treatmentKeys.dashboard.stats(startDate, endDate),
+    queryFn: () => treatmentApi.getDashboardStats(startDate, endDate),
+    staleTime: ONE_DAY_IN_MS,
+    gcTime: ONE_DAY_IN_MS * 2,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+};
+
+export const useWeeklyTrend = (startDate?: Date, endDate?: Date) => {
+  return useQuery({
+    queryKey: treatmentKeys.dashboard.weeklyTrend(startDate, endDate),
+    queryFn: () => treatmentApi.getWeeklyTrend(startDate, endDate),
+    staleTime: ONE_DAY_IN_MS,
+    gcTime: ONE_DAY_IN_MS * 2,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+};
+
+export const useRecentActivity = (limit: number = 10, startDate?: Date, endDate?: Date) => {
+  return useQuery({
+    queryKey: treatmentKeys.dashboard.recentActivity(limit, startDate, endDate),
+    queryFn: () => treatmentApi.getRecentActivity(limit, startDate, endDate),
+    staleTime: ONE_DAY_IN_MS,
+    gcTime: ONE_DAY_IN_MS * 2,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+};
+
+export const useAgentStats = (startDate?: Date, endDate?: Date) => {
+  return useQuery({
+    queryKey: treatmentKeys.dashboard.agentStats(startDate, endDate),
+    queryFn: () => treatmentApi.getAgentStats(startDate, endDate),
+    staleTime: ONE_DAY_IN_MS,
+    gcTime: ONE_DAY_IN_MS * 2,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+};
+
+export const useTaskDistribution = () => {
+  return useQuery({
+    queryKey: treatmentKeys.dashboard.taskDistribution(),
+    queryFn: () => treatmentApi.getTaskDistribution(),
+    staleTime: ONE_DAY_IN_MS,
+    gcTime: ONE_DAY_IN_MS * 2,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+};
+
+// Hook principal qui regroupe toutes les données du dashboard - CORRIGÉ
+export const useAllDashboardData = (startDate?: Date, endDate?: Date) => {
+  return useQuery({
+    queryKey: treatmentKeys.dashboard.allData(startDate, endDate),
+    queryFn: () => treatmentApi.getAllDashboardData(startDate, endDate),
+    staleTime: ONE_DAY_IN_MS,
+    gcTime: ONE_DAY_IN_MS * 2,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+};
+
+// ============================================================
+// HOOK POUR FORCER LE REFRESH (URGENCE)
+// ============================================================
+
+export const useRefreshDashboard = () => {
+  const queryClient = useQueryClient();
+
+  const refreshAllDashboardData = async () => {
+    // Récupérer toutes les clés de cache dashboard
+    const dashboardKeys = queryClient.getQueryCache().getAll()
+      .filter(cache => {
+        const key = cache.queryKey;
+        return key[0] === 'dashboard' || (key[0] === 'treatments' && key[1] === 'dashboard');
+      })
+      .map(cache => cache.queryKey);
+
+    // Forcer le refetch de chaque clé
+    await Promise.all(
+      dashboardKeys.map(key => 
+        queryClient.refetchQueries({ queryKey: key, type: 'active' })
+      )
+    );
+  };
+
+  const refreshSpecificDashboardData = async (options?: {
+    stats?: boolean;
+    weeklyTrend?: boolean;
+    recentActivity?: boolean;
+    agentStats?: boolean;
+    taskDistribution?: boolean;
+    all?: boolean;
+  }) => {
+    const refreshPromises = [];
+
+    if (options?.all || options?.stats) {
+      refreshPromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.stats() }));
+    }
+    if (options?.all || options?.weeklyTrend) {
+      refreshPromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.weeklyTrend() }));
+    }
+    if (options?.all || options?.recentActivity) {
+      refreshPromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.recentActivity() }));
+    }
+    if (options?.all || options?.agentStats) {
+      refreshPromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.agentStats() }));
+    }
+    if (options?.all || options?.taskDistribution) {
+      refreshPromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.taskDistribution() }));
+    }
+
+    await Promise.all(refreshPromises);
+  };
+
+  return {
+    refreshAllDashboardData,
+    refreshSpecificDashboardData,
+  };
+};
+
+// Hook utilitaire pour le refresh manuel (bouton d'urgence)
+export const useManualRefresh = () => {
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const manualRefresh = useCallback(async (options?: {
+    force?: boolean;
+    specific?: ('stats' | 'weeklyTrend' | 'recentActivity' | 'agentStats' | 'taskDistribution')[];
+  }) => {
+    setIsRefreshing(true);
+    try {
+      if (options?.force) {
+        // Force refresh: supprimer le cache et refetch
+        await queryClient.resetQueries({ queryKey: treatmentKeys.dashboard.all });
+      }
+      
+      // Invalider les requêtes spécifiques
+      const invalidatePromises = [];
+      
+      if (!options?.specific || options.specific.includes('stats')) {
+        invalidatePromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.stats() }));
+      }
+      if (!options?.specific || options.specific.includes('weeklyTrend')) {
+        invalidatePromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.weeklyTrend() }));
+      }
+      if (!options?.specific || options.specific.includes('recentActivity')) {
+        invalidatePromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.recentActivity() }));
+      }
+      if (!options?.specific || options.specific.includes('agentStats')) {
+        invalidatePromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.agentStats() }));
+      }
+      if (!options?.specific || options.specific.includes('taskDistribution')) {
+        invalidatePromises.push(queryClient.invalidateQueries({ queryKey: treatmentKeys.dashboard.taskDistribution() }));
+      }
+      
+      await Promise.all(invalidatePromises);
+      
+      // Optionnel: faire un refetch immédiat
+      if (options?.force) {
+        await queryClient.refetchQueries({ queryKey: treatmentKeys.dashboard.all });
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [queryClient]);
+
+  return { manualRefresh, isRefreshing };
 };

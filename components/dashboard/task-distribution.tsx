@@ -2,32 +2,50 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useI18n } from "@/lib/i18n/context";
-import { DashboardStats } from "@/lib/api/types";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { PieChartIcon } from "lucide-react";
 
+export interface TaskDistributionItem {
+  name: string;
+  value: number;
+  percentage: number;
+  color: string;
+}
+
 interface TaskDistributionProps {
-  stats: DashboardStats;
+  data: TaskDistributionItem[];
   isLoading?: boolean;
 }
 
-export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
+// Tooltip personnalisé simple
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-white dark:bg-gray-800 p-2 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {payload[0].name}
+        </p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Valeur: {payload[0].value}
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-500">
+          {payload[0].payload.percentage}%
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
+export function TaskDistribution({ data, isLoading }: TaskDistributionProps) {
   const { t } = useI18n();
 
-  const data = [
-    { name: "En attente", value: stats.pending, color: "var(--muted)" },
-    { name: "En cours", value: stats.inProgress, color: "var(--color-warning)" },
-    { name: "Traités", value: stats.completed - stats.validated, color: "var(--color-info)" },
-    { name: "Validés", value: stats.validated, color: "var(--color-success)" },
-    { name: "Rejetés", value: stats.rejected, color: "var(--color-destructive)" },
-  ].filter(item => item.value > 0);
+  // Calculer le total
+  const total = data.reduce((sum, item) => sum + item.value, 0);
 
-  const chartConfig = data.reduce((acc, item) => ({
-    ...acc,
-    [item.name]: { label: item.name, color: item.color },
-  }), {});
+  // Préparer les données pour le graphique
+  const chartData = data.filter(item => item.value > 0);
 
   if (isLoading) {
     return (
@@ -39,13 +57,13 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[300px] animate-pulse bg-muted rounded" />
+          <div className="h-[300px] animate-pulse bg-gray-100 dark:bg-gray-800 rounded-lg" />
         </CardContent>
       </Card>
     );
   }
 
-  if (stats.totalTasks === 0) {
+  if (!data || data.length === 0 || total === 0) {
     return (
       <Card>
         <CardHeader>
@@ -55,7 +73,7 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+          <div className="h-[300px] flex items-center justify-center text-gray-500 dark:text-gray-400">
             Aucune donnée pour cette période
           </div>
         </CardContent>
@@ -72,38 +90,41 @@ export function TaskDistribution({ stats, isLoading }: TaskDistributionProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={chartConfig} className="h-[300px] w-full">
+        <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={data}
+                data={chartData}
                 cx="50%"
                 cy="50%"
                 innerRadius={60}
                 outerRadius={100}
                 paddingAngle={2}
                 dataKey="value"
+                nameKey="name"
                 label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
                 labelLine={false}
               >
-                {data.map((entry, index) => (
+                {chartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
               </Pie>
-              <ChartTooltip content={<ChartTooltipContent />} />
+              <Tooltip content={<CustomTooltip />} />
               <Legend
                 verticalAlign="bottom"
                 height={36}
                 formatter={(value: string) => (
-                  <span className="text-sm text-foreground">{value}</span>
+                  <span className="text-sm text-gray-900 dark:text-gray-100">{value}</span>
                 )}
               />
             </PieChart>
           </ResponsiveContainer>
-        </ChartContainer>
+        </div>
         <div className="text-center mt-4">
-          <p className="text-3xl font-bold">{stats.totalTasks.toLocaleString()}</p>
-          <p className="text-sm text-muted-foreground">Total des tâches</p>
+          <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+            {total.toLocaleString()}
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total des tâches</p>
         </div>
       </CardContent>
     </Card>

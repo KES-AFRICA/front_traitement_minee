@@ -301,3 +301,172 @@ export interface SetPendingValidationRequest {
   completed_by: string;
   completed_by_name: string;
 }
+
+// À ajouter dans le fichier des types
+
+export interface FeederCreate {
+  m_rid: string;
+  name?: string;
+  voltage?: number;
+  is_injection?: number;
+  local_name?: string;
+  qrcode?: string;
+  collected_by?: string;
+  collected_at?: string;
+  location?: string;
+  max_power_off_peak?: string;
+  max_power_rush?: string;
+  min_power_off_peak?: string;
+  min_power_rush?: string;
+  peak_off_hour?: string;
+  rush_hour?: string;
+  created_at?: string;
+}
+
+export interface SubstationCreate {
+  m_rid: string;
+  photo?: string;
+  name?: string;
+  highest_voltage_level?: number;
+  second_substation_id?: string;
+  exploitation?: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  precision?: number;
+  regime?: string;
+  type?: string;
+  zone_type?: string;
+  security_zone_id?: string;
+  active?: number;
+  display_scada?: number;
+  created_at?: string;
+  arrondissements_m_rid?: number;
+  exploitation_m_rid?: number;
+  qrcode?: string;
+  collect_agent_name?: string;
+  collected_date?: string;
+}
+
+export interface WireCreate {
+  m_rid: string;
+  nature_conducteur?: string;
+  phase?: string;
+  section?: string;
+  type?: string;
+  t1?: string;
+  t2?: string;
+  active?: number;
+  display_scada?: number;
+  feeder_id?: string;
+  nature_bien?: string;
+  nature_isolant?: string;
+  mode_pose?: string;
+  profondeur?: string;
+  init_name?: string;
+  final_name?: string;
+  init_qrcode?: string;
+  final_qrcode?: string;
+  created_at?: string;
+}
+
+export interface BayCreate {
+  m_rid: string;
+  substation_id?: string;
+  photo?: string;
+  name?: string;
+  type?: string;
+  phase?: string;
+  voltage?: number;
+  status?: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  precision?: number;
+  active?: number;
+  display_scada?: number;
+  created_at?: string;
+  qrcode?: string;
+  busbar_id1?: string;
+  busbar_id2?: string;
+}
+
+export interface PowerTransformerCreate {
+  m_rid: string;
+  photo?: string;
+  substation_id?: string;
+  name?: string;
+  apparent_power?: number;
+  w1_voltage?: number;
+  w2_voltage?: number;
+  t1?: string;
+  t2?: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  precision?: number;
+  active?: number;
+  display_scada?: number;
+  created_at?: string;
+  pole_m_rid?: number;
+  qrcode?: string;
+  admitance?: number;
+  b_mac?: number;
+  clock_number?: number;
+  current_flow?: number;
+  flow?: number;
+  mag_base_u?: number;
+  mag_sat_flux?: number;
+  collect_by?: string;
+  collect_at?: string;
+}
+
+export interface SwitchCreate {
+  m_rid: string;
+  bay_id?: string;
+  feeder_id?: string;
+  photo?: string;
+  nature?: string;
+  t1?: string;
+  t2?: string;
+  voltage?: number;
+  second_switch_id?: string;
+  name?: string;
+  normal_open?: number;
+  phase?: string;
+  type?: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  precision?: string;
+  active?: number;
+  display_scada?: number;
+  created_at?: string;
+  qrcode?: string;
+  structure_m_rid?: number;
+}
+
+export interface BusbarCreate {
+  m_rid: string;
+  substation_id?: string;
+  photo?: string;
+  name?: string;
+  voltage?: number;
+  phase?: string;
+  is_injection?: number;
+  is_feederhead?: number;
+  t1?: string;
+  active?: number;
+  display_scada?: number;
+  created_at?: string;
+  qrcode?: string;
+  collected_by?: string;
+  collected_at?: string;
+  feeder_id?: string;
+}
+
+export interface InsertResponse {
+  success: boolean;
+  message: string;
+  m_rid?: string;
+}
