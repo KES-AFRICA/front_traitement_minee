@@ -12,7 +12,7 @@ import {
   Layers, Info, MapPin, Save, UserCheck, Filter,
   Play, Timer, User, RefreshCw,
   Loader2, Search, History, Clock, ChevronUp, ShieldAlert, Trash2,
-  DatabaseZap,
+  DatabaseZap, Pencil,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -372,10 +372,11 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
 
 // ─── Barre de recherche ───────────────────────────────────────────────
 function EquipmentSearchBar({
-  allAnomalies, onEquipmentClick,
+  allAnomalies, onEquipmentClick, onSubstationClick,
 }: {
   allAnomalies: AnomalyItem[];
   onEquipmentClick: (equipment: EquipmentDetail) => void;
+  onSubstationClick: (anomaly: AnomalyItem) => void;
 }) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -412,7 +413,7 @@ function EquipmentSearchBar({
     else if (anomaly.type === "divergence") recordData = { ...referenceData, ...collectedData };
     else if (anomaly.type === "duplicate") recordData = { ...collectedData };
     else recordData = { ...directData, ...collectedData };
-    const photoUrl = collectedData.photo || directData.photo || null;
+    const photoUrl = collectedData.photo || directData.photo || referenceData.photo || recordData.photo || null;
     return {
       id: anomaly.mrid, mrid: anomaly.mrid, table: anomaly.table,
       name: anomaly.name || recordData.name || String(anomaly.mrid),
@@ -425,7 +426,11 @@ function EquipmentSearchBar({
   };
 
   const handleSelect = (anomaly: AnomalyItem) => {
-    onEquipmentClick(buildEquipmentDetail(anomaly));
+    if (anomaly.table === "substation") {
+      onSubstationClick(anomaly);
+    } else {
+      onEquipmentClick(buildEquipmentDetail(anomaly));
+    }
     setIsOpen(false);
     setQuery("");
   };
@@ -643,13 +648,20 @@ function OccurrenceEditCard({
 
   const getPhotoUrl = (photo: any) => {
     if (!photo) return null;
-    if (typeof photo === 'string') return buildPhotoUrl(photo);
-    if (Array.isArray(photo) && photo.length > 0) return buildPhotoUrl(photo[0]);
+    if (typeof photo === 'string') {
+      if (photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('/')) return photo;
+      return buildPhotoUrl(photo);
+    }
+    if (Array.isArray(photo) && photo.length > 0) {
+      const first = photo[0];
+      if (typeof first === 'string') return first.startsWith('http') ? first : buildPhotoUrl(first);
+      if (first?.download_url) return first.download_url;
+      if (first?.filename) return buildPhotoUrl(first.filename);
+    }
     return null;
   };
   const photoUrl = getPhotoUrl(localRecord.photo);
 
-  // ── m_rid inclus dans les champs éditables pour OccurrenceEditCard ──
   const editableFields = useMemo(() =>
     Object.keys(localRecord).filter(k => !HIDDEN_FIELDS.has(k) && !LOCATION_FIELDS.has(k)),
     [localRecord]
@@ -760,7 +772,6 @@ function OccurrenceEditCard({
             const value = editedData[field];
             const originalValue = localRecord[field];
             const isModified = String(value) !== String(originalValue);
-            // m_rid toujours éditable dans OccurrenceEditCard
             const isMridField = field === "m_rid";
             return (
               <div key={field} className="space-y-1">
@@ -876,7 +887,7 @@ function useInsertByTable(table: string) {
   return mutationMap[table] ?? null;
 }
 
-// ─── Sheet détail équipement ───────────────────────────────────────────
+// ─── Sheet détail équipement (inchangé) ───────────────────────────────
 function EquipmentDetailSheet({
   equipment, isOpen, onClose, onSave, treatment, onFieldChange, isTreatmentActive, isTreatmentAllowed,
   feederId, user, updateAttributeMutation, refreshData,
@@ -916,8 +927,6 @@ function EquipmentDetailSheet({
   }, [equipment]);
 
   const isMissingEquipment = equipment?.anomalies.some(a => a.type === "missing") ?? false;
-  // Pour les manquants : éditable pour préparer l'insertion
-  // Pour les autres : éditable si traitement actif et autorisé
   const canEdit = isTreatmentActive && !!isTreatmentAllowed;
 
   const allFields = useMemo(() => {
@@ -925,7 +934,6 @@ function EquipmentDetailSheet({
     const data = editedData;
     const fieldsWithValue: string[] = [];
     const fieldsWithoutValue: string[] = [];
-    // ── m_rid inclus (non filtré) ──
     const keys = Object.keys(data).filter(k =>
       !HIDDEN_FIELDS.has(k) && !LOCATION_FIELDS.has(k) &&
       k !== "_anomalyType" && k !== "_table" &&
@@ -938,7 +946,6 @@ function EquipmentDetailSheet({
       if (hasValue) fieldsWithValue.push(field);
       else fieldsWithoutValue.push(field);
     }
-    // m_rid toujours en premier
     const sortByPriority = (fields: string[]) => {
       const mridIdx = fields.indexOf("m_rid");
       const sorted = fields.filter(f => f !== "m_rid").sort((a, b) => {
@@ -965,17 +972,35 @@ function EquipmentDetailSheet({
   const Icon = TABLE_ICONS[equipment.table] || Box;
   const getPhotoUrl = (photo: any) => {
     if (!photo) return null;
-    if (typeof photo === 'string') return buildPhotoUrl(photo);
-    if (Array.isArray(photo) && photo.length > 0) return buildPhotoUrl(photo[0]);
+    if (typeof photo === 'string') {
+      // Si c'est déjà une URL complète, la retourner directement
+      if (photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('/')) return photo;
+      return buildPhotoUrl(photo);
+    }
+    if (Array.isArray(photo) && photo.length > 0) {
+      const first = photo[0];
+      if (typeof first === 'string') {
+        if (first.startsWith('http://') || first.startsWith('https://') || first.startsWith('/')) return first;
+        return buildPhotoUrl(first);
+      }
+      // KoboToolbox format: [{download_url: "..."}]
+      if (first?.download_url) return first.download_url;
+      if (first?.filename) return buildPhotoUrl(first.filename);
+    }
     return null;
   };
-  const displayPhotoUrl = getPhotoUrl(equipment.photo || equipment.data?.photo);
+  const rawPhoto = equipment.photo
+    || equipment.data?.photo
+    || equipment.anomalies?.[0]?.collected_data?.photo
+    || equipment.anomalies?.[0]?.data?.photo
+    || equipment.anomalies?.[0]?.reference_data?.photo;
+  const displayPhotoUrl = getPhotoUrl(rawPhoto);
   const isDuplicateAnomaly = equipment.anomalies.some(a => a.type === "duplicate");
   const duplicateAnomaly = equipment.anomalies.find(a => a.type === "duplicate");
   const isDivergenceAnomaly = equipment.anomalies.some(a => a.type === "divergence");
 
   const getFieldInputType = (field: string): "text" | "number" | "select" => {
-    if (field === "m_rid") return "text"; // m_rid toujours text
+    if (field === "m_rid") return "text";
     if (["active", "is_injection", "is_feederhead", "normal_open", "display_scada"].includes(field)) return "select";
     if (["voltage", "apparent_power", "height", "w1_voltage", "w2_voltage", "highest_voltage_level"].includes(field)) return "number";
     return "text";
@@ -1026,26 +1051,19 @@ function EquipmentDetailSheet({
     setIsSaving(false);
   };
 
-  // ── Insertion en BD pour les équipements manquants ──
   const handleInsert = async () => {
     if (!user) { toast.error("Utilisateur non connecté"); return; }
     if (!insertMutation) { toast.error("Type d'équipement non supporté pour l'insertion"); return; }
     setIsInserting(true);
-
-    // Construire le payload d'insertion avec les données éditées
     const tableNameForApi = equipment.table;
     const payload: Record<string, unknown> = {};
-    // Inclure toutes les données éditées non cachées
     Object.keys(editedData).forEach(k => {
       if (k !== "_anomalyType" && k !== "_table" && k !== "photo") {
         payload[k] = editedData[k];
       }
     });
-    // S'assurer que m_rid est présent
     if (!payload["m_rid"]) payload["m_rid"] = equipment.mrid;
-
     try {
-      // Validation avant insertion
       const checkResult = await preSaveCheckMutation.mutateAsync({ tableName: tableNameForApi, payload });
       if (!checkResult.can_save) {
         setValidationErrors(checkResult.errors);
@@ -1053,15 +1071,12 @@ function EquipmentDetailSheet({
         setIsInserting(false);
         return;
       }
-
-      // Appel du bon hook d'insertion
       await insertMutation.mutateAsync({
         ...payload,
         feeder_id: feederId,
         inserted_by: user.id,
         inserted_by_name: `${user.firstName} ${user.lastName}`,
       });
-
       toast.success(`${TABLE_LABELS[equipment.table] || equipment.table} inséré(e) avec succès dans la BD`);
       onSave(equipment, editedData);
       refreshData();
@@ -1123,7 +1138,6 @@ function EquipmentDetailSheet({
               </div>
             ) : (
               <>
-                {/* Photo */}
                 <div className="w-full flex flex-col items-center justify-center py-2 border-b border-dashed border-border">
                   {displayPhotoUrl ? (
                     <div className="relative cursor-pointer w-full h-full"
@@ -1137,7 +1151,6 @@ function EquipmentDetailSheet({
                   )}
                 </div>
 
-                {/* Champs en divergence */}
                 {isDivergenceAnomaly && canEdit && (
                   <div className="space-y-3">
                     <Label className="text-xs font-semibold uppercase tracking-wider text-amber-600">
@@ -1225,7 +1238,6 @@ function EquipmentDetailSheet({
                   </div>
                 )}
 
-                {/* Localisation GPS */}
                 {equipment.location && (
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1238,7 +1250,6 @@ function EquipmentDetailSheet({
                   </div>
                 )}
 
-                {/* Bannière info manquant */}
                 {isMissingEquipment && canEdit && (
                   <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-400/30">
                     <div className="flex items-start gap-2">
@@ -1254,7 +1265,6 @@ function EquipmentDetailSheet({
                   </div>
                 )}
 
-                {/* Tous les champs (m_rid inclus et modifiable) */}
                 {filteredFields.length > 0 && (
                   <div className="space-y-4">
                     <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1268,8 +1278,6 @@ function EquipmentDetailSheet({
                       const isModified = String(value) !== String(originalValue);
                       const inputType = getFieldInputType(field);
                       const isMridField = field === "m_rid";
-                      // Pour les manquants : tout est éditable (y compris m_rid)
-                      // Pour les autres : éditable si canEdit, sauf si manquant
                       const isDisabled = !canEdit;
 
                       return (
@@ -1320,11 +1328,9 @@ function EquipmentDetailSheet({
             )}
           </div>
 
-          {/* ── Footer adaptatif ── */}
           {!isDuplicateAnomaly && canEdit && (
             <SheetFooter className="px-5 py-4 border-t shrink-0 flex flex-col gap-2">
               {isMissingEquipment ? (
-                // ── Bouton Insérer uniquement pour les manquants ──
                 <div className="flex flex-col gap-2 w-full">
                   <Button
                     className="w-full cursor-pointer bg-orange-600 hover:bg-orange-700 text-white gap-2"
@@ -1340,7 +1346,6 @@ function EquipmentDetailSheet({
                   </Button>
                 </div>
               ) : (
-                // ── Boutons Enregistrer/Annuler pour les autres types ──
                 <div className="flex flex-row gap-3 w-full">
                   <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose}>Annuler</Button>
                   <Button className="flex-1 cursor-pointer" onClick={handleSave} disabled={isSaving}>
@@ -1352,7 +1357,6 @@ function EquipmentDetailSheet({
               )}
             </SheetFooter>
           )}
-          {/* Si pas d'édition autorisée et pas un manquant : pas de footer */}
           {!isDuplicateAnomaly && !canEdit && isMissingEquipment && (
             <SheetFooter className="px-5 py-4 border-t shrink-0">
               <Button variant="outline" className="w-full cursor-pointer" onClick={onClose}>Fermer</Button>
@@ -1375,6 +1379,498 @@ function EquipmentDetailSheet({
   );
 }
 
+// ─── buildEquipmentDetailFromAnomaly ─────────────────────────────────
+function buildEquipmentDetailFromAnomaly(anomaly: AnomalyItem): EquipmentDetail {
+  const collectedData = anomaly.collected_data || {};
+  const referenceData = anomaly.reference_data || {};
+  const directData = anomaly.data || {};
+  let recordData: Record<string, any> = {};
+  if (anomaly.type === "missing") recordData = { ...directData, ...referenceData };
+  else if (anomaly.type === "new") recordData = { ...directData, ...collectedData };
+  else if (anomaly.type === "divergence") recordData = { ...referenceData, ...collectedData };
+  else if (anomaly.type === "duplicate") recordData = { ...collectedData };
+  else recordData = { ...directData, ...collectedData };
+  const photoUrl = collectedData.photo || directData.photo || referenceData.photo || recordData.photo || null;
+  return {
+    id: anomaly.mrid, mrid: anomaly.mrid, table: anomaly.table,
+    name: anomaly.name || recordData.name || String(anomaly.mrid),
+    data: { ...recordData, _anomalyType: anomaly.type },
+    anomalies: [anomaly], photo: photoUrl,
+    location: recordData.latitude && recordData.longitude
+      ? { lat: parseFloat(String(recordData.latitude)), lng: parseFloat(String(recordData.longitude)) }
+      : undefined,
+  };
+}
+
+// ─── EquipmentRow – ligne avec bouton Voir + bouton Éditer si autorisé ──
+function EquipmentRow({
+  anomaly, canEdit, onEditClick, onViewClick,
+}: {
+  anomaly: AnomalyItem;
+  canEdit: boolean;
+  onEditClick: (equipment: EquipmentDetail) => void;
+  onViewClick?: (equipment: EquipmentDetail) => void;
+}) {
+  const Icon = TABLE_ICONS[anomaly.table] || Box;
+  const equipment = buildEquipmentDetailFromAnomaly(anomaly);
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted/20 transition-colors">
+      <div className="p-1.5 rounded-md bg-muted/40 shrink-0">
+        <Icon className="h-3.5 w-3.5 text-primary/70" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{anomaly.name || anomaly.mrid}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[10px] text-muted-foreground">{TABLE_LABELS[anomaly.table] || anomaly.table}</span>
+          <span className="text-[10px] font-mono text-muted-foreground/60 truncate">{anomaly.mrid}</span>
+        </div>
+      </div>
+      <AnomalyBadge type={anomaly.type} />
+      {/* Voir détail — toujours visible */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => (onViewClick ?? onEditClick)(equipment)}
+        className="h-7 w-7 p-0 shrink-0 cursor-pointer hover:bg-muted/40"
+        title="Voir le détail"
+      >
+        <Info className="h-3.5 w-3.5 text-muted-foreground" />
+      </Button>
+      {/* Éditer — seulement si canEdit */}
+      {canEdit && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onEditClick(equipment)}
+          className="h-7 w-7 p-0 shrink-0 cursor-pointer hover:bg-primary/10"
+          title="Éditer"
+        >
+          <Pencil className="h-3.5 w-3.5 text-primary" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ─── SubstationDetailSheet ────────────────────────────────────────────
+// Un Sheet enfant s'ouvre par-dessus pour l'édition sans fermer le parent
+function SubstationDetailSheet({
+  isOpen, onClose, substationAnomaly, bays, transformers, busbars, switchesByBay,
+  filter, canEdit, feederId, user, updateAttributeMutation, refreshData, onEquipmentSave,
+  isTreatmentActive, isTreatmentAllowed,
+}: {
+  isOpen: boolean; onClose: () => void; substationAnomaly: AnomalyItem;
+  bays: AnomalyItem[]; transformers: AnomalyItem[]; busbars: AnomalyItem[];
+  switchesByBay: Map<string, AnomalyItem[]>; filter: FilterType; canEdit: boolean;
+  feederId: string; user: any; updateAttributeMutation: any; refreshData: () => void;
+  onEquipmentSave: (equipment: EquipmentDetail, updatedData: Record<string, unknown>) => void;
+  isTreatmentActive: boolean; isTreatmentAllowed: boolean | null;
+}) {
+  const [childEquipment, setChildEquipment] = useState<EquipmentDetail | null>(null);
+  const [isChildSheetOpen, setIsChildSheetOpen] = useState(false);
+  // En lecture seule le sheet enfant s'ouvre aussi mais sans droits d'édition
+  const openChildView = (equipment: EquipmentDetail) => {
+    setChildEquipment(equipment);
+    setIsChildSheetOpen(true);
+  };
+  const openChildEdit = (equipment: EquipmentDetail) => {
+    setChildEquipment(equipment);
+    setIsChildSheetOpen(true);
+  };
+
+  const allSwitches = bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+  const allChildren = [...bays, ...transformers, ...busbars, ...allSwitches];
+  const conformes = [substationAnomaly, ...allChildren].filter(a => a.type === "ok").length;
+  const total = 1 + allChildren.length;
+
+  const filteredTransformers = filter === "all" ? transformers : transformers.filter(t => t.type === filter);
+  const filteredBusbars = filter === "all" ? busbars : busbars.filter(b => b.type === filter);
+  const filteredBays = filter === "all" ? bays : bays.filter(b => {
+    if (b.type === filter) return true;
+    return (switchesByBay.get(b.mrid) || []).some(s => s.type === filter);
+  });
+
+  const getPhotoUrl = (anomaly: AnomalyItem): string | null => {
+    const photo = anomaly.collected_data?.photo || anomaly.data?.photo || anomaly.reference_data?.photo || null;
+    if (!photo) return null;
+    if (typeof photo === 'string') {
+      if (photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('/')) return photo;
+      return buildPhotoUrl(photo);
+    }
+    if (Array.isArray(photo) && photo.length > 0) {
+      const first = photo[0];
+      if (typeof first === 'string') return first.startsWith('http') ? first : buildPhotoUrl(first);
+      if (first?.download_url) return first.download_url;
+      if (first?.filename) return buildPhotoUrl(first.filename);
+    }
+    return null;
+  };
+
+  return (
+    <>
+      {/* Sheet enfant (édition) — s'ouvre par-dessus sans fermer le parent */}
+      <EquipmentDetailSheet
+        equipment={childEquipment}
+        isOpen={isChildSheetOpen}
+        onClose={() => setIsChildSheetOpen(false)}
+        onSave={(eq, data) => { onEquipmentSave(eq, data); setIsChildSheetOpen(false); }}
+        treatment={{}}
+        onFieldChange={() => {}}
+        isTreatmentActive={isTreatmentActive}
+        isTreatmentAllowed={isTreatmentAllowed}
+        feederId={feederId}
+        user={user}
+        updateAttributeMutation={updateAttributeMutation}
+        refreshData={refreshData}
+      />
+
+      {/* Sheet principal poste */}
+      <Sheet open={isOpen} onOpenChange={onClose}>
+        <SheetContent side="right" className="w-screen! sm:w-[60vw]! max-w-none! sm:max-w-[60vw]! flex flex-col p-0 overflow-hidden">
+          <SheetHeader className="px-5 py-4 border-b shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-primary/10 shrink-0">
+                <Building2 className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <SheetTitle className="text-base">{substationAnomaly.name || substationAnomaly.mrid}</SheetTitle>
+                  <AnomalyBadge type={substationAnomaly.type} />
+                  {substationAnomaly.data?.type && (
+                    <span className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded-full">
+                      {substationAnomaly.data.type}
+                    </span>
+                  )}
+                </div>
+                <SheetDescription className="text-xs font-mono mt-0.5">
+                  {substationAnomaly.mrid} · {allChildren.length} équipement{allChildren.length > 1 ? "s" : ""}
+                </SheetDescription>
+              </div>
+              {canEdit && (
+                <Button variant="outline" size="sm"
+                  onClick={() => openChildEdit(buildEquipmentDetailFromAnomaly(substationAnomaly))}
+                  className="gap-1.5 cursor-pointer shrink-0">
+                  <Pencil className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Éditer le poste</span>
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-3 mt-2">
+              <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  style={{ width: total > 0 ? `${(conformes / total) * 100}%` : "0%" }} />
+              </div>
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap">{conformes}/{total} conformes</span>
+            </div>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
+            {/* Poste lui-même */}
+            {(filter === "all" || substationAnomaly.type === filter) && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-primary" />
+                  <h3 className="text-sm font-semibold">Poste source</h3>
+                  <div className="h-px flex-1 bg-border/40" />
+                </div>
+                {getPhotoUrl(substationAnomaly) && (
+                  <div className="rounded-lg overflow-hidden border border-border">
+                    <PhotoThumb src={getPhotoUrl(substationAnomaly)!} alt={substationAnomaly.name || substationAnomaly.mrid} />
+                  </div>
+                )}
+                <EquipmentRow anomaly={substationAnomaly} canEdit={canEdit} onEditClick={openChildEdit} onViewClick={openChildView} />
+              </section>
+            )}
+
+            {/* Transformateurs */}
+            {filteredTransformers.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  <h3 className="text-sm font-semibold">Transformateurs</h3>
+                  <Badge variant="outline" className="text-[10px] h-4 px-1.5">{filteredTransformers.length}</Badge>
+                  <div className="h-px flex-1 bg-border/40" />
+                </div>
+                <div className="space-y-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredTransformers.map(t => (
+                    <div key={t.id} className="space-y-1.5">
+                      {getPhotoUrl(t) && (
+                        <div className="rounded-lg overflow-hidden border border-border">
+                          <PhotoThumb src={getPhotoUrl(t)!} alt={t.name || t.mrid} />
+                        </div>
+                      )}
+                      <EquipmentRow anomaly={t} canEdit={canEdit} onEditClick={openChildEdit} onViewClick={openChildView} />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Bus Bars */}
+            {filteredBusbars.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-blue-500" />
+                  <h3 className="text-sm font-semibold">Bus Bars</h3>
+                  <Badge variant="outline" className="text-[10px] h-4 px-1.5">{filteredBusbars.length}</Badge>
+                  <div className="h-px flex-1 bg-border/40" />
+                </div>
+                <div className="space-y-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredBusbars.map(b => (
+                    <div key={b.id} className="space-y-1.5">
+                      {getPhotoUrl(b) && (
+                        <div className="rounded-lg overflow-hidden border border-border">
+                          <PhotoThumb src={getPhotoUrl(b)!} alt={b.name || b.mrid} />
+                        </div>
+                      )}
+                      <EquipmentRow anomaly={b} canEdit={canEdit} onEditClick={openChildEdit} onViewClick={openChildView} />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Cellules + Switchs */}
+            {filteredBays.length > 0 && (
+              <section className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Box className="h-4 w-4 text-violet-500" />
+                  <h3 className="text-sm font-semibold">Cellules</h3>
+                  <Badge variant="outline" className="text-[10px] h-4 px-1.5">{filteredBays.length}</Badge>
+                  <div className="h-px flex-1 bg-border/40" />
+                </div>
+                <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredBays.map(bay => {
+                    const baySwitches = switchesByBay.get(bay.mrid) || [];
+                    const filteredSwitches = filter === "all" ? baySwitches : baySwitches.filter(s => s.type === filter);
+                    return (
+                      <div key={bay.id} className="space-y-1.5">
+                        {getPhotoUrl(bay) && (
+                          <div className="rounded-lg overflow-hidden border border-border">
+                            <PhotoThumb src={getPhotoUrl(bay)!} alt={bay.name || bay.mrid} />
+                          </div>
+                        )}
+                        <EquipmentRow anomaly={bay} canEdit={canEdit} onEditClick={openChildEdit} onViewClick={openChildView} />
+                        {filteredSwitches.length > 0 && (
+                          <div className="ml-5 space-y-2 border-l-2 border-border/40 pl-3">
+                            {filteredSwitches.map(sw => (
+                              <div key={sw.id} className="space-y-1.5">
+                                {getPhotoUrl(sw) && (
+                                  <div className="rounded-lg overflow-hidden border border-border">
+                                    <PhotoThumb src={getPhotoUrl(sw)!} alt={sw.name || sw.mrid} />
+                                  </div>
+                                )}
+                                <EquipmentRow anomaly={sw} canEdit={canEdit} onEditClick={openChildEdit} onViewClick={openChildView} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {filteredBays.length === 0 && filteredTransformers.length === 0 && filteredBusbars.length === 0 &&
+              filter !== "all" && substationAnomaly.type !== filter && (
+                <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
+                  <Filter className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">Aucun équipement pour ce filtre</p>
+                </div>
+              )}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+// ─── SubstationsRootGroup (NOUVELLE VERSION) ───────────────────────────
+// Liste plate des postes, clic → ouvre SubstationDetailSheet
+function SubstationsRootGroup({
+  substationsList, switchesByBay, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess,
+  feederId, user, updateAttributeMutation, refreshData, onEquipmentSave, isTreatmentActive, isTreatmentAllowed,
+}: {
+  substationsList: { substation: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[]; busbars: AnomalyItem[]; }[];
+  switchesByBay: Map<string, AnomalyItem[]>; filter: FilterType; treatment: TreatmentState;
+  onFieldChange: (id: string, field: string, val: string) => void;
+  onMarkTreated: (id: string) => void; onEquipmentClick: (equipment: EquipmentDetail) => void;
+  isClickable: boolean; canProcess: boolean;
+  feederId: string; user: any; updateAttributeMutation: any; refreshData: () => void;
+  onEquipmentSave: (equipment: EquipmentDetail, updatedData: Record<string, unknown>) => void;
+  isTreatmentActive: boolean; isTreatmentAllowed: boolean | null;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedSubstationIndex, setSelectedSubstationIndex] = useState<number | null>(null);
+
+  const sortedSubstationsList = useMemo(() =>
+    [...substationsList].sort((a, b) => (a.substation.name || "").localeCompare(b.substation.name || "")),
+    [substationsList]
+  );
+
+  // Filtrage : n'affiche un poste que s'il matche le filtre ou s'il a des enfants qui matchent
+  const visibleSubstations = useMemo(() => {
+    if (filter === "all") return sortedSubstationsList;
+    return sortedSubstationsList.filter(item => {
+      if (item.substation.type === filter) return true;
+      const allSwitches = item.bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+      const allChildren = [...item.bays, ...item.transformers, ...item.busbars, ...allSwitches];
+      return allChildren.some(c => c.type === filter);
+    });
+  }, [sortedSubstationsList, filter, switchesByBay]);
+
+  const substationsWithIssues = substationsList.filter(s => {
+    const allSwitches = s.bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+    const all = [s.substation, ...s.bays, ...s.transformers, ...s.busbars, ...allSwitches];
+    return all.some(a => a.type !== "ok");
+  }).length;
+
+  const allItems = substationsList.flatMap(s => {
+    const allSwitches = s.bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+    return [s.substation, ...s.bays, ...s.transformers, ...s.busbars, ...allSwitches];
+  });
+  const dominantCfg = getDominantAnomalyConfig(allItems);
+
+  if (substationsList.length === 0) return null;
+
+  const selectedItem = selectedSubstationIndex !== null ? sortedSubstationsList[selectedSubstationIndex] : null;
+
+  return (
+    <>
+      {/* ── Sheet détail poste ── */}
+      {selectedItem && (
+        <SubstationDetailSheet
+          isOpen={selectedSubstationIndex !== null}
+          onClose={() => setSelectedSubstationIndex(null)}
+          substationAnomaly={selectedItem.substation}
+          bays={selectedItem.bays}
+          transformers={selectedItem.transformers}
+          busbars={selectedItem.busbars}
+          switchesByBay={switchesByBay}
+          filter={filter}
+          canEdit={canProcess}
+          feederId={feederId}
+          user={user}
+          updateAttributeMutation={updateAttributeMutation}
+          refreshData={refreshData}
+          onEquipmentSave={onEquipmentSave}
+          isTreatmentActive={isTreatmentActive}
+          isTreatmentAllowed={isTreatmentAllowed}
+        />
+      )}
+
+      {/* ── Groupe racine (toggle) ── */}
+      <div className="rounded-xl border border-border/60 overflow-hidden">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className={cn(
+            "flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left cursor-pointer",
+            dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/20"
+          )}
+        >
+          {isOpen ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          <Building2 className={cn("h-4 w-4 shrink-0", dominantCfg.type !== "ok" ? dominantCfg.color : "text-primary")} />
+          <span className="font-semibold text-sm flex-1">Postes (Substations)</span>
+          <div className="flex items-center gap-2">
+            {dominantCfg.type !== "ok" && <AnomalyBadge type={dominantCfg.type as AnomalyType} />}
+            {substationsWithIssues > 0 && (
+              <span className={cn("text-[10px]", dominantCfg.color)}>
+                {substationsWithIssues} avec anomalie{substationsWithIssues > 1 ? "s" : ""}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">
+              {visibleSubstations.length}/{substationsList.length} poste{substationsList.length > 1 ? "s" : ""}
+            </span>
+          </div>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {isOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="border-t border-border/40 divide-y divide-border/20">
+                {visibleSubstations.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                    Aucun poste pour ce filtre
+                  </div>
+                ) : (
+                  visibleSubstations.map((item, idx) => {
+                    const allSwitches = item.bays.flatMap(b => switchesByBay.get(b.mrid) || []);
+                    const allChildren = [...item.bays, ...item.transformers, ...item.busbars, ...allSwitches];
+                    const dominantChildCfg = getDominantAnomalyConfig([item.substation, ...allChildren]);
+                    const childCount = allChildren.length;
+                    const nonConforme = [item.substation, ...allChildren].filter(a => a.type !== "ok").length;
+
+                    // Trouver l'index dans sortedSubstationsList
+                    const sortedIdx = sortedSubstationsList.findIndex(s => s.substation.id === item.substation.id);
+
+                    return (
+                      <button
+                        key={item.substation.id}
+                        onClick={() => setSelectedSubstationIndex(sortedIdx)}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer group",
+                          "hover:bg-muted/30",
+                          dominantChildCfg.type !== "ok" && dominantChildCfg.activeBg + "/50"
+                        )}
+                      >
+                        {/* Icône */}
+                        <div className={cn("p-1.5 rounded-lg shrink-0", dominantChildCfg.type !== "ok" ? dominantChildCfg.bg : "bg-muted/40")}>
+                          <Building2 className={cn("h-3.5 w-3.5", dominantChildCfg.type !== "ok" ? dominantChildCfg.color : "text-primary/70")} />
+                        </div>
+
+                        {/* Nom + méta */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium truncate">
+                              {item.substation.name || item.substation.mrid}
+                            </span>
+                            {item.substation.data?.type && (
+                              <span className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded-full shrink-0 hidden sm:inline">
+                                {item.substation.data.type}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-mono text-muted-foreground/70 truncate">
+                              {item.substation.mrid}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground/50">·</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {childCount} équipement{childCount > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Badges */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {nonConforme > 0 && (
+                            <span className={cn("text-[10px] font-medium", dominantChildCfg.color)}>
+                              {nonConforme} n.c.
+                            </span>
+                          )}
+                          <AnomalyBadge type={dominantChildCfg.type as AnomalyType} />
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </>
+  );
+}
+
 // ─── AnomalyCard ──────────────────────────────────────────────────────
 function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
   anomaly: AnomalyItem; treatment: TreatmentState;
@@ -1389,32 +1885,20 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
 
-  const equipmentDetail: EquipmentDetail | null = useMemo(() => {
-    const collectedData = anomaly.collected_data || {};
-    const referenceData = anomaly.reference_data || {};
-    const directData = anomaly.data || {};
-    let recordData: Record<string, any> = {};
-    if (anomaly.type === "missing") recordData = { ...directData, ...referenceData };
-    else if (anomaly.type === "new") recordData = { ...directData, ...collectedData };
-    else if (anomaly.type === "divergence") recordData = { ...referenceData, ...collectedData };
-    else if (anomaly.type === "duplicate") recordData = { ...collectedData };
-    else recordData = { ...directData, ...collectedData };
-    const photoUrl = collectedData.photo || directData.photo || null;
-    return {
-      id: anomaly.mrid, mrid: anomaly.mrid, table: anomaly.table,
-      name: anomaly.name || recordData.name || String(anomaly.mrid),
-      data: { ...recordData, _anomalyType: anomaly.type },
-      anomalies: [anomaly], photo: photoUrl,
-      location: recordData.latitude && recordData.longitude
-        ? { lat: parseFloat(String(recordData.latitude)), lng: parseFloat(String(recordData.longitude)) }
-        : undefined,
-    };
-  }, [anomaly]);
+  const equipmentDetail: EquipmentDetail | null = useMemo(() => buildEquipmentDetailFromAnomaly(anomaly), [anomaly]);
 
   const getPhotoUrl = (photo: any) => {
     if (!photo) return null;
-    if (typeof photo === 'string') return buildPhotoUrl(photo);
-    if (Array.isArray(photo) && photo.length > 0) return buildPhotoUrl(photo[0]);
+    if (typeof photo === 'string') {
+      if (photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('/')) return photo;
+      return buildPhotoUrl(photo);
+    }
+    if (Array.isArray(photo) && photo.length > 0) {
+      const first = photo[0];
+      if (typeof first === 'string') return first.startsWith('http') ? first : buildPhotoUrl(first);
+      if (first?.download_url) return first.download_url;
+      if (first?.filename) return buildPhotoUrl(first.filename);
+    }
     return null;
   };
   const displayPhotoUrl = getPhotoUrl(equipmentDetail?.photo);
@@ -1534,266 +2018,6 @@ function AnomalyCard({ anomaly, treatment, onFieldChange, onMarkTreated, onEquip
         </Dialog>
       )}
     </>
-  );
-}
-
-// ─── SwitchItem ────────────────────────────────────────────────────────
-function SwitchItem({ switchAnomaly, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  switchAnomaly: AnomalyItem; treatment: TreatmentState;
-  onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void;
-  onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean; canProcess: boolean;
-}) {
-  return <AnomalyCard anomaly={switchAnomaly} treatment={treatment} onFieldChange={onFieldChange}
-    onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />;
-}
-
-// ─── BayItem ──────────────────────────────────────────────────────────
-function BayItem({ bayAnomaly, switches, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  bayAnomaly: AnomalyItem; switches: AnomalyItem[]; filter: FilterType; treatment: TreatmentState;
-  onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void;
-  onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean; canProcess: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const Icon = TABLE_ICONS["bay"] || Box;
-  const bayName = bayAnomaly.name || bayAnomaly.mrid;
-
-  const filteredSwitches = useMemo(() => {
-    if (filter === "all") return [...switches].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    const filtered = switches.filter(s => s.type === filter);
-    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [switches, filter]);
-
-  if (filter !== "all" && bayAnomaly.type !== filter && filteredSwitches.length === 0) return null;
-
-  const allChildren = [...switches];
-  const dominantCfg = getDominantAnomalyConfig([bayAnomaly, ...allChildren]);
-
-  return (
-    <div className="rounded-lg border border-border/50 overflow-hidden ml-2 sm:ml-4">
-      <button onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 hover:bg-muted/20 transition-colors text-left cursor-pointer",
-          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/5"
-        )}>
-        {isOpen ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-        <div className="p-0.5 rounded-md bg-muted/50"><Icon className="h-3 w-3 text-primary/70" /></div>
-        <span className="font-medium text-xs flex-1 truncate">{bayName}</span>
-        <AnomalyBadge type={dominantCfg.type as AnomalyType} />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <div className="pl-6 pr-3 py-2 space-y-2 border-t border-border/30">
-              {(filter === "all" || bayAnomaly.type === filter) && (
-                <AnomalyCard anomaly={bayAnomaly} treatment={treatment} onFieldChange={onFieldChange}
-                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              )}
-              {filteredSwitches.length > 0 && (
-                <div className="space-y-2 ml-2">
-                  {filteredSwitches.map(switchAnomaly => (
-                    <SwitchItem key={switchAnomaly.id} switchAnomaly={switchAnomaly} treatment={treatment}
-                      onFieldChange={onFieldChange} onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick}
-                      isClickable={isClickable} canProcess={canProcess} />
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── SubstationItem ────────────────────────────────────────────────────
-function SubstationItem({ substationAnomaly, bays, transformers, busbars, switchesByBay, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  substationAnomaly: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[];
-  busbars: AnomalyItem[]; switchesByBay: Map<string, AnomalyItem[]>; filter: FilterType;
-  treatment: TreatmentState; onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void; onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean; canProcess: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const Icon = TABLE_ICONS["substation"] || Building2;
-  const substationName = substationAnomaly.name || substationAnomaly.mrid;
-
-  const filteredBays = useMemo(() => {
-    if (filter === "all") return [...bays].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-    const filtered = bays.filter(b => {
-      if (b.type === filter) return true;
-      const baySwitches = switchesByBay.get(b.mrid) || [];
-      return baySwitches.some(s => s.type === filter);
-    });
-    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [bays, filter, switchesByBay]);
-
-  const filteredTransformers = useMemo(() => {
-    const filtered = filter === "all" ? transformers : transformers.filter(t => t.type === filter);
-    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [transformers, filter]);
-
-  const filteredBusbars = useMemo(() => {
-    const filtered = filter === "all" ? busbars : busbars.filter(b => b.type === filter);
-    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [busbars, filter]);
-
-  const hasChildren = filteredBays.length > 0 || filteredTransformers.length > 0 || filteredBusbars.length > 0;
-  const substationMatchesFilter = filter === "all" || substationAnomaly.type === filter;
-  if (!substationMatchesFilter && !hasChildren) return null;
-
-  const allSwitches = bays.flatMap(b => switchesByBay.get(b.mrid) || []);
-  const allChildren = [...bays, ...transformers, ...busbars, ...allSwitches];
-  const dominantCfg = getDominantAnomalyConfig([substationAnomaly, ...allChildren]);
-
-  return (
-    <div className="rounded-lg border border-border/60 overflow-hidden">
-      <button onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "flex w-full items-center gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors text-left cursor-pointer",
-          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/10"
-        )}>
-        {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-        <div className="p-1 rounded-md bg-primary/10"><Icon className="h-3.5 w-3.5 text-primary" /></div>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="font-medium text-sm truncate">{substationName}</span>
-          {substationAnomaly.data?.type && (
-            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded-full shrink-0">
-              {substationAnomaly.data.type}
-            </span>
-          )}
-        </div>
-        <AnomalyBadge type={dominantCfg.type as AnomalyType} />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <div className="p-3 space-y-3 border-t border-border/40">
-              {substationMatchesFilter && (
-                <AnomalyCard anomaly={substationAnomaly} treatment={treatment} onFieldChange={onFieldChange}
-                  onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              )}
-              {filteredTransformers.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground pl-2">Transformateurs</div>
-                  {filteredTransformers.map(transformer => (
-                    <AnomalyCard key={transformer.id} anomaly={transformer} treatment={treatment} onFieldChange={onFieldChange}
-                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-                  ))}
-                </div>
-              )}
-              {filteredBusbars.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground pl-2">Bus Bars</div>
-                  {filteredBusbars.map(busbar => (
-                    <AnomalyCard key={busbar.id} anomaly={busbar} treatment={treatment} onFieldChange={onFieldChange}
-                      onMarkTreated={onMarkTreated} onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-                  ))}
-                </div>
-              )}
-              {filteredBays.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground pl-2">Cellules</div>
-                  <div className="space-y-2">
-                    {filteredBays.map(bay => {
-                      const baySwitches = switchesByBay.get(bay.mrid) || [];
-                      return <BayItem key={bay.id} bayAnomaly={bay} switches={baySwitches} filter={filter}
-                        treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
-                        onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />;
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── SubstationsRootGroup ─────────────────────────────────────────────
-function SubstationsRootGroup({ substationsList, switchesByBay, filter, treatment, onFieldChange, onMarkTreated, onEquipmentClick, isClickable, canProcess }: {
-  substationsList: { substation: AnomalyItem; bays: AnomalyItem[]; transformers: AnomalyItem[]; busbars: AnomalyItem[]; }[];
-  switchesByBay: Map<string, AnomalyItem[]>; filter: FilterType; treatment: TreatmentState;
-  onFieldChange: (id: string, field: string, val: string) => void;
-  onMarkTreated: (id: string) => void; onEquipmentClick?: (equipment: EquipmentDetail) => void;
-  isClickable: boolean; canProcess: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const substationsWithIssues = substationsList.filter(s => s.substation.type !== "ok").length;
-
-  const sortedSubstationsList = useMemo(() => {
-    return [...substationsList].sort((a, b) =>
-      (a.substation.name || "").localeCompare(b.substation.name || "")
-    );
-  }, [substationsList]);
-
-  const allItems = substationsList.flatMap(s => {
-    const allSwitches = s.bays.flatMap(b => switchesByBay.get(b.mrid) || []);
-    return [s.substation, ...s.bays, ...s.transformers, ...s.busbars, ...allSwitches];
-  });
-  const dominantCfg = getDominantAnomalyConfig(allItems);
-
-  if (substationsList.length === 0) return null;
-
-  return (
-    <div className="rounded-xl border border-border/60 overflow-hidden">
-      <button onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "flex w-full items-center gap-2 px-4 py-2.5 hover:bg-muted/40 transition-colors text-left cursor-pointer",
-          dominantCfg.type !== "ok" ? dominantCfg.activeBg : "bg-muted/20"
-        )}>
-        {isOpen ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-        <Building2 className={cn("h-4 w-4 shrink-0", dominantCfg.type !== "ok" ? dominantCfg.color : "text-primary")} />
-        <span className="font-semibold text-sm flex-1">Postes (Substations)</span>
-        <div className="flex items-center gap-2">
-          {dominantCfg.type !== "ok" && <AnomalyBadge type={dominantCfg.type as AnomalyType} />}
-          {substationsWithIssues > 0 && (
-            <span className={cn("text-[10px]", dominantCfg.color)}>{substationsWithIssues} avec anomalie{substationsWithIssues > 1 ? "s" : ""}</span>
-          )}
-          <span className="text-[10px] text-muted-foreground">{substationsList.length} poste{substationsList.length > 1 ? "s" : ""}</span>
-        </div>
-      </button>
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <div className="p-3 space-y-3 border-t border-border/40">
-              {sortedSubstationsList.map((item) => (
-                <SubstationItem key={item.substation.id} substationAnomaly={item.substation} bays={item.bays}
-                  transformers={item.transformers} busbars={item.busbars} switchesByBay={switchesByBay}
-                  filter={filter} treatment={treatment} onFieldChange={onFieldChange} onMarkTreated={onMarkTreated}
-                  onEquipmentClick={onEquipmentClick} isClickable={isClickable} canProcess={canProcess} />
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
   );
 }
 
@@ -2031,6 +2255,8 @@ export default function FeederProcessingPage() {
   const [treatment, setTreatment] = useState<TreatmentState>({});
   const [selectedEquipment, setSelectedEquipment] = useState<EquipmentDetail | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  // Poste sélectionné depuis la recherche → ouvre SubstationDetailSheet
+  const [searchSelectedSubstation, setSearchSelectedSubstation] = useState<AnomalyItem | null>(null);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [isReassignDialogOpen, setIsReassignDialogOpen] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
@@ -2386,16 +2612,25 @@ export default function FeederProcessingPage() {
     return null;
   };
 
-  if (comparisonLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Chargement des données du feeder...</p>
-        </div>
-      </div>
-    );
+const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+
+useEffect(() => {
+  if (!comparisonLoading && comparisonResult) {
+    setHasLoadedOnce(true);
   }
+}, [comparisonLoading, comparisonResult]);
+
+// Remplacez la condition par :
+if (comparisonLoading && !hasLoadedOnce) {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+        <p className="text-muted-foreground">Chargement des données du feeder...</p>
+      </div>
+    </div>
+  );
+}
 
   if (comparisonError || !comparisonResult) {
     return (
@@ -2508,7 +2743,11 @@ export default function FeederProcessingPage() {
       </div>
 
       <EquipmentTypeKPIs allAnomalies={allAnomalies} />
-      <EquipmentSearchBar allAnomalies={allAnomalies} onEquipmentClick={handleEquipmentClick} />
+      <EquipmentSearchBar
+        allAnomalies={allAnomalies}
+        onEquipmentClick={handleEquipmentClick}
+        onSubstationClick={(anomaly) => setSearchSelectedSubstation(anomaly)}
+      />
       <RecentEditsPanel recentEdits={recentEdits} onEquipmentClick={handleEquipmentClick} />
 
       <div className="space-y-3">
@@ -2540,6 +2779,13 @@ export default function FeederProcessingPage() {
           onEquipmentClick={handleEquipmentClick}
           isClickable={true}
           canProcess={isTreatmentActive && !!isTreatmentAllowed}
+          feederId={feederId}
+          user={user}
+          updateAttributeMutation={updateAttributeMutation}
+          refreshData={refreshAllData}
+          onEquipmentSave={handleEquipmentSave}
+          isTreatmentActive={isTreatmentActive}
+          isTreatmentAllowed={isEditAllowed}
         />
 
         <WireRootGroup
@@ -2561,6 +2807,7 @@ export default function FeederProcessingPage() {
         )}
       </div>
 
+      {/* Sheet d'édition (inchangé, utilisé depuis le modal poste aussi) */}
       <EquipmentDetailSheet
         equipment={selectedEquipment}
         isOpen={isSheetOpen}
@@ -2575,6 +2822,31 @@ export default function FeederProcessingPage() {
         updateAttributeMutation={updateAttributeMutation}
         refreshData={refreshAllData}
       />
+
+      {/* Sheet poste ouvert depuis la recherche */}
+      {searchSelectedSubstation && (() => {
+        const item = substationsList.find(s => s.substation.mrid === searchSelectedSubstation.mrid);
+        return item ? (
+          <SubstationDetailSheet
+            isOpen={!!searchSelectedSubstation}
+            onClose={() => setSearchSelectedSubstation(null)}
+            substationAnomaly={item.substation}
+            bays={item.bays}
+            transformers={item.transformers}
+            busbars={item.busbars}
+            switchesByBay={switchesByBay}
+            filter={activeFilter}
+            canEdit={isTreatmentActive && !!isTreatmentAllowed}
+            feederId={feederId}
+            user={user}
+            updateAttributeMutation={updateAttributeMutation}
+            refreshData={refreshAllData}
+            onEquipmentSave={handleEquipmentSave}
+            isTreatmentActive={isTreatmentActive}
+            isTreatmentAllowed={isEditAllowed}
+          />
+        ) : null;
+      })()}
 
       <AssignDialog isOpen={isAssignDialogOpen} onClose={() => setIsAssignDialogOpen(false)} onAssign={handleAssign}
         feederName={feederName} processingAgents={processingAgents} isAssigning={isAssigning} currentUser={user} isReassign={false} />
