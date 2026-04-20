@@ -123,8 +123,8 @@ const TABLE_ICONS: Record<string, React.ElementType> = {
 };
 
 const TABLE_LABELS: Record<string, string> = {
-  substation: "Substation", powertransformer: "Transformateur", bus_bar: "Bus Bar",
-  bay: "Cellule", switch: "Switch", wire: "Câble", feeder: "Départ",
+  substation: "Poste", powertransformer: "Transformateur", bus_bar: "Jeux de barres",
+  bay: "Cellule", switch: "OCR", wire: "Ligne", feeder: "Départ",
 };
 
 const FL: Record<string, string> = {
@@ -426,9 +426,9 @@ function EquipmentTypeKPIs({ allAnomalies }: { allAnomalies: AnomalyItem[] }) {
     { table: "substation", label: "Postes", icon: Building2 },
     { table: "bay", label: "Cellules", icon: Box },
     { table: "powertransformer", label: "Transfo.", icon: Zap },
-    { table: "switch", label: "Switchs", icon: ToggleLeft },
+    { table: "switch", label: "OCR", icon: ToggleLeft },
     { table: "wire", label: "Lignes", icon: Cable },
-    { table: "bus_bar", label: "Bus Bars", icon: Layers },
+    { table: "bus_bar", label: "JDB", icon: Layers },
   ];
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
@@ -1883,7 +1883,7 @@ function SubstationDetailSheet({
               <section className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Layers className="h-4 w-4 text-blue-500" />
-                  <h3 className="text-sm font-semibold">Bus Bars</h3>
+                  <h3 className="text-sm font-semibold">Jeux de barres</h3>
                   <Badge variant="outline" className="text-[10px] h-4 px-1.5">
                     {filteredBusbars.length}
                   </Badge>
