@@ -1211,13 +1211,6 @@ export default function MapPage() {
                         </div>
                       </div>
                     )}
-                    
-                    {filteredWires.length > 0 && totalLengthAll > 0 && (
-                      <div className="text-[10px] text-muted-foreground text-center">
-                        {(totalLengthFiltered / totalLengthAll * 100).toFixed(1)}% des lignes
-                      </div>
-                    )}
-
                     {filteredWires.length > 0 && (
                       <div className="grid grid-cols-2 gap-2">
                         <div className="bg-muted/20 rounded-lg p-2 text-center">
