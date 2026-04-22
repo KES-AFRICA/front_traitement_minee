@@ -5,20 +5,21 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AgentStats as AgentStatsType } from "@/lib/api/types";
+import { AgentStat } from "@/lib/api/services/treatment-service";
 import { useI18n } from "@/lib/i18n/context";
 import { Users } from "lucide-react";
 
 interface AgentStatsProps {
-  stats: AgentStatsType[];
+  stats: AgentStat[];
   isLoading?: boolean;
 }
 
 const roleLabels: Record<string, string> = {
-    "Admin":             "Administrateur",
-  'Chef équipe':         "Chef d'équipe",
-  'Agent validation':  "Agent de validation",
-  'Agent traitement':  "Agent de traitement",
+  "Admin": "Administrateur",
+  "Chef équipe": "Chef d'équipe",
+  "Agent validation": "Agent de validation",
+  "Agent traitement": "Agent de traitement",
+  "Coordonateur": "Coordonateur",
 };
 
 export function AgentStats({ stats, isLoading }: AgentStatsProps) {
@@ -28,7 +29,7 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
     `${firstName?.charAt(0) || ""}${lastName?.charAt(0) || ""}`.toUpperCase();
 
   const getEfficiencyColor = (e: number) =>
-    e >= 90 ? "text-emerald-500" : e >= 70 ? "text-amber-500" : "text-destructive";
+    e >= 90 ? "text-emerald-500" : e >= 70 ? "text-amber-500" : "text-red-500";
 
   const getOccupancyVariant = (r: number): "default" | "secondary" | "destructive" | "outline" =>
     r >= 90 ? "destructive" : r >= 70 ? "default" : "secondary";
@@ -50,10 +51,10 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
           <div className="space-y-4">
             {[...Array(3)].map((_, i) => (
               <div key={i} className="flex items-center gap-3 animate-pulse">
-                <div className="w-9 h-9 rounded-full bg-muted shrink-0" />
+                <div className="w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-800 shrink-0" />
                 <div className="flex-1 space-y-2 min-w-0">
-                  <div className="h-3.5 bg-muted rounded w-1/2" />
-                  <div className="h-2 bg-muted rounded w-full" />
+                  <div className="h-3.5 bg-gray-200 dark:bg-gray-800 rounded w-1/2" />
+                  <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded w-full" />
                 </div>
               </div>
             ))}
@@ -63,12 +64,12 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
     );
   }
 
-  if (stats.length === 0) {
+  if (!stats || stats.length === 0) {
     return (
       <Card>
         {header}
         <CardContent className="px-4 pb-4 sm:px-6">
-          <div className="h-70 flex items-center justify-center text-muted-foreground text-sm sm:h-87.5">
+          <div className="h-70 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm sm:h-87.5">
             Aucune donnée pour cette période
           </div>
         </CardContent>
@@ -80,26 +81,25 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
     <Card>
       {header}
       <CardContent className="p-0">
-        {/* Hauteur réduite sur mobile */}
         <ScrollArea className="h-70 sm:h-87.5">
           <div className="space-y-3 px-4 pb-4 sm:px-6">
             {stats.map((agent) => (
               <div
                 key={agent.userId}
-                className="p-3 rounded-lg border border-border hover:border-primary/30 transition-colors sm:p-4"
+                className="p-3 rounded-lg border border-gray-200 dark:border-gray-800 hover:border-blue-500/30 transition-colors sm:p-4"
               >
                 {/* Ligne du haut : avatar + nom + badge */}
                 <div className="flex items-center gap-2.5 mb-2.5 sm:gap-3 sm:mb-3">
                   <Avatar className="h-9 w-9 shrink-0 sm:h-10 sm:w-10">
-                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                    <AvatarFallback className="bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs">
                       {getInitials(agent.user.firstName, agent.user.lastName)}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">
+                    <p className="font-medium text-sm truncate text-gray-900 dark:text-gray-100">
                       {agent.user.firstName} {agent.user.lastName}
                     </p>
-                    <p className="text-[10px] text-muted-foreground sm:text-xs">
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 sm:text-xs">
                       {roleLabels[agent.user.role] ?? agent.user.role}
                     </p>
                   </div>
@@ -111,26 +111,26 @@ export function AgentStats({ stats, isLoading }: AgentStatsProps) {
                 {/* Barre de progression */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Tâches complétées</span>
-                    <span className="font-medium">{agent.tasksCompleted}/{agent.tasksAssigned}</span>
+                    <span className="text-gray-500 dark:text-gray-400">Tâches complétées</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{agent.tasksCompleted}/{agent.tasksAssigned}</span>
                   </div>
                   <Progress
-                    value={(agent.tasksCompleted / Math.max(agent.tasksAssigned, 1)) * 100}
+                    value={agent.tasksAssigned > 0 ? (agent.tasksCompleted / agent.tasksAssigned) * 100 : 0}
                     className="h-1.5"
                   />
                 </div>
 
                 {/* Pied : efficacité + temps */}
-                <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-border/50 sm:mt-3 sm:pt-3">
-                  <p className="text-[10px] text-muted-foreground sm:text-xs">
+                <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-gray-200/50 dark:border-gray-800/50 sm:mt-3 sm:pt-3">
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 sm:text-xs">
                     Efficacité :{" "}
                     <span className={`font-medium ${getEfficiencyColor(agent.efficiency)}`}>
                       {agent.efficiency}%
                     </span>
                   </p>
-                  <p className="text-[10px] text-muted-foreground sm:text-xs">
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 sm:text-xs">
                     Moy. :{" "}
-                    <span className="font-medium">{agent.avgProcessingTime}h</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{agent.avgProcessingTime}h</span>
                   </p>
                 </div>
               </div>

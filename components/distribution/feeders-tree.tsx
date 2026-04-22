@@ -1,4 +1,3 @@
-// components/distribution/feeders-tree.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -8,6 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import { useFeedersWithSource } from "@/hooks/use-treatment-service";
 import { useAuth } from "@/lib/auth/context";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface FeedersTreeProps {
   mode: "processing" | "validation";
@@ -97,14 +97,19 @@ useEffect(() => {
     });
   }
 
-  const result: FeederTreeGroup[] = Object.entries(groups).map(
-    ([decoupage, substationsMap]) => ({
-      decoupage,
-      substations: Object.values(substationsMap)
-    })
-  );
+const result: FeederTreeGroup[] = Object.entries(groups).map(
+  ([decoupage, substationsMap]) => ({
+    decoupage,
+    substations: Object.values(substationsMap)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(substation => ({
+        ...substation,
+        feeders: substation.feeders.sort((a, b) => a.feeder_name.localeCompare(b.feeder_name))
+      }))
+  })
+).sort((a, b) => a.decoupage.localeCompare(b.decoupage));
 
-  setGroupedData(result);
+setGroupedData(result);
 
   // Auto-expand
   if (selectedFeederId) {
@@ -189,66 +194,81 @@ useEffect(() => {
             </button>
           </CollapsibleTrigger>
 
-          <CollapsibleContent>
-            <div className="ml-4 pl-2 border-l border-sidebar-border/50 space-y-1 mt-1">
-              {group.substations.map((substation) => (
-                <Collapsible
-                  key={substation.id}
-                  open={openSubstations[substation.id]}
-                  onOpenChange={() => toggleSubstation(substation.id)}
-                  className="w-full"
-                >
-                  <CollapsibleTrigger asChild>
-                    <button
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm",
-                        "hover:bg-sidebar-accent/30 transition-colors",
-                        openSubstations[substation.id] && "bg-sidebar-accent/10"
-                      )}
-                    >
-                      <ChevronRight
+          <CollapsibleContent asChild>
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="ml-4 pl-2 border-l border-sidebar-border/50 space-y-1 mt-1">
+                {group.substations.map((substation) => (
+                  <Collapsible
+                    key={substation.id}
+                    open={openSubstations[substation.id]}
+                    onOpenChange={() => toggleSubstation(substation.id)}
+                    className="w-full"
+                  >
+                    <CollapsibleTrigger asChild>
+                      <button
                         className={cn(
-                          "h-3 w-3 shrink-0 transition-transform",
-                          openSubstations[substation.id] && "rotate-90"
+                          "flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm",
+                          "hover:bg-sidebar-accent/30 transition-colors",
+                          openSubstations[substation.id] && "bg-sidebar-accent/10"
                         )}
-                      />
-                      <MapPin className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-sm truncate">{substation.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        ({substation.feeders.length})
-                      </span>
-                    </button>
-                  </CollapsibleTrigger>
-
-                  <CollapsibleContent>
-                    <div className="ml-4 pl-2 border-l border-sidebar-border/50 space-y-0.5 mt-1">
-                      {substation.feeders.map((feeder) => (
-                        <button
-                          key={feeder.feeder_id}
-                          onClick={() => handleFeederClick(feeder.feeder_id, feeder.feeder_name)}
+                      >
+                        <ChevronRight
                           className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-                            "hover:bg-sidebar-accent/40 transition-colors cursor-pointer",
-                            String(selectedFeederId) === String(feeder.feeder_id) && "bg-blue-500/20 text-blue-600 font-medium"
+                            "h-3 w-3 shrink-0 transition-transform",
+                            openSubstations[substation.id] && "rotate-90"
                           )}
-                        >
-                          <Zap className="h-3 w-3 text-blue-500 shrink-0" />
-                            <span className="truncate flex-1 text-left">
-                              {feeder.feeder_name?.slice(4)}
-                            </span>
-                          
-                          {feeder.assigned_agent_name && feeder.assigned_agent_id !== user?.id && user?.role !== 'Admin' && user?.role !== 'Chef équipe' ? null : feeder.assigned_agent_name && user?.role === 'Admin' && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                              <User className="h-2.5 w-2.5" />
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              ))}
-            </div>
+                        />
+                        <MapPin className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-sm truncate">{substation.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({substation.feeders.length})
+                        </span>
+                      </button>
+                    </CollapsibleTrigger>
+
+                    <CollapsibleContent asChild>
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: "easeInOut" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="ml-4 pl-2 border-l border-sidebar-border/50 space-y-0.5 mt-1">
+                          {substation.feeders.map((feeder) => (
+                            <button
+                              key={feeder.feeder_id}
+                              onClick={() => handleFeederClick(feeder.feeder_id, feeder.feeder_name)}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                                "hover:bg-sidebar-accent/40 transition-colors cursor-pointer",
+                                String(selectedFeederId) === String(feeder.feeder_id) && "bg-blue-500/20 text-blue-600 font-medium"
+                              )}
+                            >
+                              <Zap className="h-3 w-3 text-blue-500 shrink-0" />
+                              <span className="truncate flex-1 text-left">
+                                {feeder.feeder_name?.slice(4)}
+                              </span>
+                              {feeder.assigned_agent_name && feeder.assigned_agent_id !== user?.id && user?.role !== 'Admin' && user?.role !== 'Chef équipe' ? null : feeder.assigned_agent_name && user?.role === 'Admin' && (
+                                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                                  <User className="h-2.5 w-2.5" />
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ))}
+              </div>
+            </motion.div>
           </CollapsibleContent>
         </Collapsible>
       ))}

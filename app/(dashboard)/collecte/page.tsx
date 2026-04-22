@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   AlertCircle, Database, GitBranch, BarChart3,
   Users, Zap, Power, Shield, Box, Cable,
-  Building2, LayoutGrid, Activity, TrendingUp,
+  Building2, LayoutGrid, Activity, TrendingUp, RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -20,6 +20,40 @@ interface ErreursStats   {
   manquants: Record<string, number>;
   nouveaux:  Record<string, number>;
   doublons:  Record<string, number>;
+}
+
+// ─── Cache helpers ────────────────────────────────────────────────────────────
+const CACHE_TTL_MS  = 24 * 60 * 60 * 1000;
+const CACHE_KEY     = "kobo_cache_collecte_dashboard";
+
+interface CacheEntry<T> { data: T; expiresAt: number }
+
+function cacheGet<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const entry: CacheEntry<T> = JSON.parse(raw);
+    if (Date.now() > entry.expiresAt) { localStorage.removeItem(key); return null; }
+    return entry.data;
+  } catch { return null; }
+}
+
+function cacheSet<T>(key: string, data: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ data, expiresAt: Date.now() + CACHE_TTL_MS }));
+  } catch { /* quota dépassé → ignore */ }
+}
+
+function cacheClear(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
+// ─── Payload groupé pour le cache ────────────────────────────────────────────
+interface DashboardPayload {
+  globalStats: GlobalStats;
+  decoupage:   DecoupageItem[];
+  equipements: EquipementItem[];
+  erreurs:     ErreursStats;
 }
 
 // ─── Colour helpers ───────────────────────────────────────────────────────────
@@ -52,7 +86,7 @@ function EquipIcon({ nom, className = "", style }: { nom: string; className?: st
   return <Icon className={className} style={style} />;
 }
 
-// ─── Animated Speedometer Gauge (canvas) ────────────────────────────────────
+// ─── Animated Speedometer Gauge (canvas) ─────────────────────────────────────
 function SpeedometerGauge({ pct, size = 150 }: { pct: number | null; size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number>(0);
@@ -83,7 +117,6 @@ function SpeedometerGauge({ pct, size = 150 }: { pct: number | null; size?: numb
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, size, size);
 
-      // Track
       ctx.beginPath();
       ctx.arc(cx, cy, r, startA, endA);
       ctx.strokeStyle = "rgba(255,255,255,0.1)";
@@ -91,7 +124,6 @@ function SpeedometerGauge({ pct, size = 150 }: { pct: number | null; size?: numb
       ctx.lineCap     = "round";
       ctx.stroke();
 
-      // Value arc (animated)
       if (progress > 0) {
         const valA = startA + (endA - startA) * progress;
         ctx.beginPath();
@@ -102,7 +134,6 @@ function SpeedometerGauge({ pct, size = 150 }: { pct: number | null; size?: numb
         ctx.stroke();
       }
 
-      // Tick marks
       for (let i = 0; i <= 10; i++) {
         const a  = startA + (endA - startA) * (i / 10);
         const r1 = r - sw / 2 - 3;
@@ -116,7 +147,6 @@ function SpeedometerGauge({ pct, size = 150 }: { pct: number | null; size?: numb
         ctx.stroke();
       }
 
-      // Needle hub + needle
       const needleA = startA + (endA - startA) * progress;
       const nx = cx + r * Math.cos(needleA);
       const ny = cy + r * Math.sin(needleA);
@@ -136,14 +166,12 @@ function SpeedometerGauge({ pct, size = 150 }: { pct: number | null; size?: numb
       ctx.fill();
       ctx.restore();
 
-      // Centre label
-      ctx.font          = `500 ${Math.round(size * 0.13)}px sans-serif`;
-      ctx.fillStyle     = col.text;
-      ctx.textAlign     = "center";
-      ctx.textBaseline  = "middle";
+      ctx.font         = `500 ${Math.round(size * 0.13)}px sans-serif`;
+      ctx.fillStyle    = col.text;
+      ctx.textAlign    = "center";
+      ctx.textBaseline = "middle";
       ctx.fillText(pct !== null ? `${pct}%` : "—", cx, cy - 7);
 
-      // Eased animation
       if (progress < target) {
         progress = Math.min(target, progress + target / 50);
         rafRef.current = requestAnimationFrame(frame);
@@ -171,7 +199,7 @@ function DashboardSkeleton() {
         {[1, 2, 3].map(i => <div key={i} className="h-36 animate-pulse rounded-xl bg-muted" />)}
       </div>
       <div className="h-60 animate-pulse rounded-xl bg-muted" />
-      <div className="h-[480px] animate-pulse rounded-xl bg-muted" />
+      <div className="h-120 animate-pulse rounded-xl bg-muted" />
       <div className="h-40 animate-pulse rounded-xl bg-muted" />
     </div>
   );
@@ -195,39 +223,68 @@ export default function CollecteDashboardPage() {
   const [equipements, setEquipements] = useState<EquipementItem[]>([]);
   const [erreurs,     setErreurs]     = useState<ErreursStats | null>(null);
   const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
   const [error,       setError]       = useState<string | null>(null);
 
+  const applyPayload = (payload: DashboardPayload) => {
+    setGlobalStats(payload.globalStats);
+    setDecoupage(payload.decoupage);
+    setEquipements(payload.equipements);
+    setErreurs(payload.erreurs);
+  };
+
+  const loadData = useCallback(async (force = false) => {
+    // Cache hit (sauf si force)
+    if (!force) {
+      const cached = cacheGet<DashboardPayload>(CACHE_KEY);
+      if (cached) { applyPayload(cached); setLoading(false); return; }
+    }
+
+    try {
+      const [globalRes, decoupageRes, equipRes, erreursRes] = await Promise.all([
+        api.get<GlobalStats>("/kobo/dashboard/collecte/global"),
+        api.get<{ decoupage: DecoupageItem[] }>("/kobo/dashboard/collecte/decoupage"),
+        api.get<{ equipements: EquipementItem[] }>("/kobo/dashboard/collecte/equipements"),
+        api.get<ErreursStats>("/kobo/dashboard/collecte/erreurs"),
+      ]);
+      const payload: DashboardPayload = {
+        globalStats: globalRes,
+        decoupage:   decoupageRes.decoupage,
+        equipements: equipRes.equipements,
+        erreurs:     erreursRes,
+      };
+      cacheSet(CACHE_KEY, payload);
+      applyPayload(payload);
+    } catch (err: unknown) {
+      setError((err as Error).message || "Erreur de chargement");
+    }
+  }, []);
+
+  // Chargement initial
   useEffect(() => {
     (async () => {
       setLoading(true);
       setError(null);
-      try {
-        const [globalRes, decoupageRes, equipRes, erreursRes] = await Promise.all([
-          api.get<GlobalStats>("/kobo/dashboard/collecte/global"),
-          api.get<{ decoupage: DecoupageItem[] }>("/kobo/dashboard/collecte/decoupage"),
-          api.get<{ equipements: EquipementItem[] }>("/kobo/dashboard/collecte/equipements"),
-          api.get<ErreursStats>("/kobo/dashboard/collecte/erreurs"),
-        ]);
-        setGlobalStats(globalRes);
-        setDecoupage(decoupageRes.decoupage);
-        setEquipements(equipRes.equipements);
-        setErreurs(erreursRes);
-      } catch (err: unknown) {
-        setError((err as Error).message || "Erreur de chargement");
-      } finally {
-        setLoading(false);
-      }
+      await loadData(false);
+      setLoading(false);
     })();
-  }, []);
+  }, [loadData]);
+
+  // Bouton urgence : vide le cache puis recharge
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    cacheClear(CACHE_KEY);
+    await loadData(true);
+    setRefreshing(false);
+  }, [loadData]);
 
   if (loading) return <DashboardSkeleton />;
   if (error)   return <ErrorDisplay message={error} />;
 
-  // Split equipements into those with taux and those without
   const withTaux = equipements.filter(e => e.taux !== null);
   const noTaux   = equipements.filter(e => e.taux === null);
 
-  // Anomaly definitions
   const anomalyDefs = [
     {
       key: "manquants" as const, label: "Manquants",
@@ -254,7 +311,6 @@ export default function CollecteDashboardPage() {
         className="relative overflow-hidden rounded-xl px-6 py-5"
         style={{ background: "linear-gradient(135deg, #0C447C 0%, #185FA5 60%, #1D9E75 100%)" }}
       >
-        {/* Ambient overlay */}
         <div
           className="pointer-events-none absolute inset-0"
           style={{
@@ -265,7 +321,7 @@ export default function CollecteDashboardPage() {
         />
         <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-white/15">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15">
               <Database className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -277,17 +333,17 @@ export default function CollecteDashboardPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <select
-              className="rounded-lg border border-white/25 bg-white/12 px-3 py-1.5 text-xs text-white outline-none"
-              style={{ backdropFilter: "blur(8px)" }}
-            >
-              <option className="text-black bg-white">Aujourd'hui</option>
-              <option className="text-black bg-white">Cette semaine</option>
-              <option className="text-black bg-white">Ce mois</option>
-              <option className="text-black bg-white">Personnalisé</option>
-            </select>
-          </div>
+
+          {/* ── Bouton Actualiser ── */}
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-lg border border-white/25 bg-white/12 px-4 py-2 text-xs font-medium text-white transition-all hover:bg-white/20 disabled:opacity-60"
+            style={{ backdropFilter: "blur(8px)" }}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Actualisation…" : "Actualiser"}
+          </button>
         </div>
       </div>
 
@@ -413,9 +469,8 @@ export default function CollecteDashboardPage() {
         </div>
       )}
 
-      {/* ── ÉQUIPEMENTS – Gauges + No-taux cards ────────────────────────── */}
+      {/* ── ÉQUIPEMENTS ──────────────────────────────────────────────────── */}
       <div className="overflow-hidden rounded-xl">
-        {/* Section header */}
         <div
           className="flex items-center gap-3 px-5 py-4"
           style={{ background: "linear-gradient(135deg, #0C447C, #185FA5)", borderBottom: "1px solid rgba(255,255,255,0.1)" }}
@@ -429,12 +484,10 @@ export default function CollecteDashboardPage() {
           </div>
         </div>
 
-        {/* Gauge area — dark blue background */}
         <div
           className="p-6"
           style={{ background: "linear-gradient(160deg, #0C447C 0%, #185FA5 40%, #042C53 100%)" }}
         >
-          {/* 3-column gauge grid */}
           {withTaux.length > 0 && (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {withTaux.map(eq => {
@@ -443,10 +496,7 @@ export default function CollecteDashboardPage() {
                   <div
                     key={eq.nom}
                     className="flex flex-col items-center gap-2 rounded-2xl border py-5 px-4 transition-all"
-                    style={{
-                      background: "rgba(255,255,255,0.07)",
-                      borderColor: "rgba(255,255,255,0.12)",
-                    }}
+                    style={{ background: "rgba(255,255,255,0.07)", borderColor: "rgba(255,255,255,0.12)" }}
                     onMouseEnter={e => {
                       (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.12)";
                       (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.22)";
@@ -456,16 +506,11 @@ export default function CollecteDashboardPage() {
                       (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.12)";
                     }}
                   >
-                    {/* Name */}
                     <div className="flex items-center gap-1.5">
                       <EquipIcon nom={eq.nom} className="h-4 w-4" style={{ color: "rgba(255,255,255,0.8)" }} />
                       <span className="text-center text-xs font-medium text-white/90">{eq.nom}</span>
                     </div>
-
-                    {/* Animated speedometer */}
                     <SpeedometerGauge pct={eq.taux} size={150} />
-
-                    {/* Count */}
                     <p className="text-xs" style={{ color: "rgba(255,255,255,0.6)" }}>
                       <span className="font-medium" style={{ color: col.text }}>{eq.collectes}</span>
                       {eq.attendus != null && <span> / {eq.attendus}</span>}
@@ -476,13 +521,9 @@ export default function CollecteDashboardPage() {
             </div>
           )}
 
-          {/* No-taux cards */}
           {noTaux.length > 0 && (
             <div className="mt-6">
-              <p
-                className="mb-3 text-[10px] font-medium uppercase tracking-widest"
-                style={{ color: "rgba(255,255,255,0.45)" }}
-              >
+              <p className="mb-3 text-[10px] font-medium uppercase tracking-widest" style={{ color: "rgba(255,255,255,0.45)" }}>
                 Équipements sans référentiel
               </p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -490,16 +531,9 @@ export default function CollecteDashboardPage() {
                   <div
                     key={eq.nom}
                     className="flex flex-col gap-3 rounded-xl border p-4 transition-all"
-                    style={{
-                      background: "rgba(255,255,255,0.06)",
-                      borderColor: "rgba(255,255,255,0.1)",
-                    }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.10)";
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.06)";
-                    }}
+                    style={{ background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.1)" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.10)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.06)"; }}
                   >
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/12">
@@ -509,14 +543,9 @@ export default function CollecteDashboardPage() {
                     </div>
                     <div>
                       <p className="text-2xl font-medium text-white leading-none">{eq.collectes}</p>
-                      <p className="mt-1 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>
-                        éléments collectés
-                      </p>
+                      <p className="mt-1 text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>éléments collectés</p>
                     </div>
-                    <div
-                      className="h-0.5 w-8 rounded-full"
-                      style={{ background: "linear-gradient(90deg, #1D9E75, #5DCAA5)" }}
-                    />
+                    <div className="h-0.5 w-8 rounded-full" style={{ background: "linear-gradient(90deg, #1D9E75, #5DCAA5)" }} />
                   </div>
                 ))}
               </div>

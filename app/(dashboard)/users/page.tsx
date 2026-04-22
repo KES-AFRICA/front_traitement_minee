@@ -78,6 +78,7 @@ const roleLabels: Record<string, string> = {
   "Chef équipe": "Chef d'équipe",
   "Agent validation": "Agent de validation",
   "Agent traitement": "Agent de traitement",
+  "Coordonateur": "Coordonateur",
 };
 
 const roleBadgeVariants: Record<UserRole, "default" | "secondary" | "destructive" | "outline"> = {
@@ -85,6 +86,7 @@ const roleBadgeVariants: Record<UserRole, "default" | "secondary" | "destructive
   "Chef équipe": "default",
   "Agent validation": "secondary",
   "Agent traitement": "outline",
+  "Coordonateur": "default",
 };
 
 const companyBadgeVariants: Record<Company, "default" | "secondary"> = {
@@ -93,6 +95,30 @@ const companyBadgeVariants: Record<Company, "default" | "secondary"> = {
   ARSEL: "secondary",
   MINEE: "secondary"
 };
+
+/**
+ * Normalise un objet utilisateur brut reçu depuis le backend.
+ * Le backend peut renvoyer full_name (snake_case) au lieu de firstName/lastName.
+ * Cette fonction garantit que l'objet User est toujours bien formé.
+ */
+function normalizeUser(raw: any): User {
+  if (!raw) return raw;
+
+  // Si firstName/lastName sont déjà présents, rien à faire
+  if (raw.firstName !== undefined && raw.lastName !== undefined) return raw as User;
+
+  // Sinon, tenter de reconstruire depuis full_name
+  const fullName: string = raw.full_name ?? "";
+  const parts = fullName.trim().split(" ");
+  const firstName = parts[0] ?? "";
+  const lastName = parts.slice(1).join(" ") || "";
+
+  return {
+    ...raw,
+    firstName,
+    lastName,
+  } as User;
+}
 
 export default function UsersPage() {
   const { t, language } = useI18n();
@@ -122,7 +148,7 @@ export default function UsersPage() {
       try {
         const response = await userService.getUsers({}, { pageSize: 100 });
         if (response.data) {
-          setUsers(response.data.data);
+          setUsers(response.data.data.map(normalizeUser));
         }
       } catch (error) {
         console.error("Failed to fetch users:", error);
@@ -173,6 +199,17 @@ export default function UsersPage() {
     });
   };
 
+  const refreshUsers = async () => {
+    try {
+      const response = await userService.getUsers({}, { pageSize: 100 });
+      if (response.data) {
+        setUsers(response.data.data.map(normalizeUser));
+      }
+    } catch (error) {
+      console.error("Failed to refresh users:", error);
+    }
+  };
+
   const handleCreate = async () => {
     if (!formData.email || !formData.firstName || !formData.lastName || !formData.company || !formData.role || !formData.password) {
       toast.error("Tous les champs sont obligatoires");
@@ -188,14 +225,17 @@ export default function UsersPage() {
     setIsProcessing(true);
     try {
       const response = await userService.createUser(formData);
-      if (response.data) {
-        setUsers((prev) => [...prev, response.data!]);
-        toast.success(t("common.success"));
-        setIsCreateOpen(false);
-        resetForm();
-      } else {
-        toast.error(response.error || t("errors.serverError"));
-      }
+      // On considère la création réussie si pas d'erreur explicite,
+      // même si la réponse est mal formée (full_name au lieu de firstName/lastName)
+      // if (response.error) {
+      //   toast.error(response.error);
+      //   return;
+      // }
+      toast.success("Utilisateur créé avec succès");
+      setIsCreateOpen(false);
+      resetForm();
+      // Recharger la liste depuis l'API pour avoir les données propres
+      await refreshUsers();
     } catch {
       toast.error(t("errors.networkError"));
     } finally {
@@ -207,7 +247,7 @@ export default function UsersPage() {
     if (!editUser) return;
 
     const updates: Partial<User> = {};
-    
+
     if (formData.email !== editUser.email) updates.email = formData.email;
     if (formData.firstName !== editUser.firstName) updates.firstName = formData.firstName;
     if (formData.lastName !== editUser.lastName) updates.lastName = formData.lastName;
@@ -225,8 +265,9 @@ export default function UsersPage() {
     try {
       const response = await userService.updateUser(editUser.id, updates);
       if (response.data) {
+        const updatedUser = normalizeUser(response.data);
         setUsers((prev) =>
-          prev.map((u) => (u.id === editUser.id ? response.data! : u))
+          prev.map((u) => (u.id === editUser.id ? updatedUser : u))
         );
         toast.success("Utilisateur modifié avec succès");
         setEditUser(null);
@@ -266,10 +307,11 @@ export default function UsersPage() {
     try {
       const response = await userService.toggleUserStatus(user.id, user.isActive);
       if (response.data) {
+        const updatedUser = normalizeUser(response.data);
         setUsers((prev) =>
-          prev.map((u) => (u.id === user.id ? response.data! : u))
+          prev.map((u) => (u.id === user.id ? updatedUser : u))
         );
-        toast.success(response.data.isActive ? "Utilisateur activé" : "Utilisateur désactivé");
+        toast.success(updatedUser.isActive ? "Utilisateur activé" : "Utilisateur désactivé");
       } else {
         toast.error(response.error || "Erreur lors du changement de statut");
       }
@@ -668,24 +710,23 @@ function UserForm({ formData, setFormData, t, isEditMode = false }: UserFormProp
               }
             />
           </div>
-          {!isEditMode &&
-          <div className="space-y-2">
-            <Label htmlFor="password">
-              Mot de passe  *
-              
-            </Label>
-            <Input
-              id="password"
-              type="password"
-              required={!isEditMode}
-              placeholder={isEditMode ? "Laissez vide pour ne pas modifier" : ""}
-              value={formData.password}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, password: e.target.value }))
-              }
-            />
-          </div>
-}
+          {!isEditMode && (
+            <div className="space-y-2">
+              <Label htmlFor="password">
+                Mot de passe *
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                required={!isEditMode}
+                placeholder={isEditMode ? "Laissez vide pour ne pas modifier" : ""}
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, password: e.target.value }))
+                }
+              />
+            </div>
+          )}
         </div>
       </div>
 

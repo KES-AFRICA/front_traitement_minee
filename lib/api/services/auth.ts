@@ -7,6 +7,7 @@ function mapRoleIdToUserRole(roleId: number): User['role'] {
     case 2: return 'Chef équipe';
     case 3: return 'Agent validation';
     case 4: return 'Agent traitement';
+    case 6: return 'Coordonateur';
     default: return 'Agent traitement';
   }
 }

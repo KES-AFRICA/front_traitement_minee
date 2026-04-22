@@ -68,7 +68,7 @@ export default function LoginPage() {
 
       if (result.success) {
         toast.success(t("auth.welcomeBack"));
-        router.push("/dashboard");
+        router.push("/collecte");
       } else {
         // Afficher le message d'erreur retourné par le backend ou un message générique
         setError(result.error || t("auth.invalidCredentials"));

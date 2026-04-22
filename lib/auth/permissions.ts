@@ -112,6 +112,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     PERMISSIONS.VIEW_SETTINGS,
     PERMISSIONS.ACTION_PROCESS_TASK,
   ],
+
+  "Coordonateur": [
+    PERMISSIONS.VIEW_COLLECTE,
+    PERMISSIONS.VIEW_MAP,
+    PERMISSIONS.VIEW_SETTINGS,
+  ],
 };
 
 // ─── Helpers purs (utilisables hors React) ───────────────────────────────────
@@ -155,6 +161,7 @@ export function getDefaultRouteForRole(role: UserRole): string {
     case "Chef équipe":        return "/dashboard";
     case "Agent validation": return "/dashboard";
     case "Agent traitement": return "/dashboard";
+    case "Coordonateur":      return "/collecte";
     default:                 return "/login";
   }
 }

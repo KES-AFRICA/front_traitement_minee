@@ -23,6 +23,7 @@ function mapRoleIdToUserRole(roleId: number): UserRole {
     case 2: return 'Chef équipe';
     case 3: return 'Agent validation';
     case 4: return 'Agent traitement';
+    case 6: return 'Coordonateur';
     default: return 'Agent traitement';
   }
 }
@@ -34,6 +35,7 @@ function mapRoleToRoleId(role: UserRole): number {
     case 'Chef équipe': return 2;
     case 'Agent validation': return 3;
     case 'Agent traitement': return 4;
+    case 'Coordonateur': return 6;
     default: return 4;
   }
 }

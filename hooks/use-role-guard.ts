@@ -34,6 +34,7 @@ export function useRoleGuard() {
   const isTeamLead        = hasRole("Chef équipe");
   const isValidationAgent = hasRole("Agent validation");
   const isProcessingAgent = hasRole("Agent traitement");
+  const isCoordinator      = hasRole("Coordonateur");
 
   // ── Raccourcis actions métier ─────────────────────────────────────────────
   /** Peut effectuer des actions de traitement (chef d'équipe, agent traitement) */
